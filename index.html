@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#1a3a5c">
 <title>Expedientes de Compras · DSN</title>
-<link rel="stylesheet" href="styles.css?v=2">
+<link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
 
@@ -31,6 +31,7 @@
       <p>Cuentas de demostración — toca para entrar:</p>
       <button class="chip" onclick="quickLogin('asesor1')">👤 Carlos (Asesor)</button>
       <button class="chip" onclick="quickLogin('asesor2')">👤 María (Asesora)</button>
+      <button class="chip" onclick="quickLogin('compras1')">🗂️ Laura (Admva. de compras)</button>
       <button class="chip chip-admin" onclick="quickLogin('admin')">🛡️ Administración Central</button>
     </div>
   </div>
@@ -79,19 +80,51 @@
 <section id="view-admin" class="view hidden">
   <header class="topbar topbar-admin">
     <div>
-      <div class="topbar-title">Administración Central</div>
-      <div class="topbar-sub">Revisión de documentos</div>
+      <div class="topbar-title" id="admin-titulo">Administración Central</div>
+      <div class="topbar-sub" id="admin-sub">Revisión de documentos</div>
     </div>
     <button class="btn-ghost" onclick="logout()">Salir</button>
   </header>
 
   <div class="tabs">
     <button class="tab active" id="tab-pendientes" onclick="adminTab('pendientes')">Por revisar <span class="badge" id="badge-pendientes">0</span></button>
-    <button class="tab" id="tab-todos" onclick="adminTab('todos')">Todos los expedientes</button>
+    <button class="tab" id="tab-todos" onclick="adminTab('todos')">Expedientes</button>
+    <button class="tab hidden" id="tab-config" onclick="adminTab('config')">⚙️ Configuración</button>
   </div>
 
   <div class="list" id="admin-lista"></div>
 </section>
+
+<!-- ==================== MODAL: NUEVO USUARIO ==================== -->
+<div id="modal-usuario" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Dar de alta usuario</h3>
+    <div class="field">
+      <label for="user-nombre">Nombre completo *</label>
+      <input type="text" id="user-nombre" placeholder="ej. Laura Gómez Torres">
+    </div>
+    <div class="field">
+      <label for="user-usuario">Usuario para entrar *</label>
+      <input type="text" id="user-usuario" autocapitalize="none" placeholder="ej. lgomez (sin espacios)">
+    </div>
+    <div class="field">
+      <label for="user-pin">PIN de 4 dígitos *</label>
+      <input type="text" id="user-pin" inputmode="numeric" maxlength="4" placeholder="ej. 4821">
+    </div>
+    <div class="field">
+      <label for="user-rol">Rol *</label>
+      <select id="user-rol" class="select">
+        <option value="asesor">Asesor de ventas</option>
+        <option value="administrativo">Administrativo de compras</option>
+      </select>
+    </div>
+    <p id="user-error" class="error hidden"></p>
+    <div class="modal-actions">
+      <button class="btn" onclick="cerrarModal('modal-usuario')">Cancelar</button>
+      <button class="btn btn-primary" onclick="crearUsuario()">Dar de alta</button>
+    </div>
+  </div>
+</div>
 
 <!-- ==================== MODAL: NUEVO EXPEDIENTE ==================== -->
 <div id="modal-nuevo" class="modal-overlay hidden">
@@ -145,6 +178,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>

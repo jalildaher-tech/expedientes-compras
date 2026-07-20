@@ -279,6 +279,63 @@ body {
 }
 .doc-conteo { color: var(--texto-suave); font-size: 12px; }
 
+/* ---------- Configuración ---------- */
+.config-usuarios { margin-top: 12px; }
+.config-usuario {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--borde);
+  font-size: 14px;
+}
+.config-usuario:last-child { border-bottom: none; }
+.config-usuario code {
+  background: var(--gris-suave);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+.config-seccion {
+  font-size: 16px;
+  margin: 6px 2px 0;
+  color: var(--texto);
+}
+.config-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+.config-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  font-size: 14.5px;
+  cursor: pointer;
+}
+.config-check:has(input:checked) {
+  background: var(--verde-suave);
+  border-color: var(--verde);
+}
+.config-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--verde);
+}
+.select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1.5px solid var(--borde);
+  border-radius: 10px;
+  font-size: 16px;
+  background: var(--blanco);
+}
+
 /* ---------- Tabs admin ---------- */
 .tabs {
   display: flex;

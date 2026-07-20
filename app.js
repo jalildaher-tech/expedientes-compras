@@ -1,8 +1,12 @@
 /* ============================================================
    Expedientes de Compras — Prototipo Fase 1
    Los datos se guardan en localStorage del navegador.
-   Cada documento del checklist acepta varios archivos
-   (fotos de cámara o PDFs).
+   Roles:
+   - asesor: crea expedientes y sube archivos (fotos o PDF).
+   - administrativo: revisa solo los expedientes de los asesores
+     que tiene asignados en el configurador.
+   - admin (Administración Central): ve todo y administra
+     usuarios y asignaciones en ⚙️ Configuración.
    ============================================================ */
 
 const CHECKLIST = [
@@ -14,36 +18,58 @@ const CHECKLIST = [
   { key: "baja",      nombre: "Baja de placas" },
 ];
 
-const USUARIOS = [
-  { id: "asesor1", nombre: "Carlos Ramírez", usuario: "asesor1", pin: "1111", rol: "asesor" },
-  { id: "asesor2", nombre: "María Fernanda Ruiz", usuario: "asesor2", pin: "2222", rol: "asesor" },
-  { id: "admin",   nombre: "Administración Central", usuario: "admin", pin: "9999", rol: "admin" },
+const USUARIOS_BASE = [
+  { id: "asesor1",  nombre: "Carlos Ramírez",         usuario: "asesor1",  pin: "1111", rol: "asesor" },
+  { id: "asesor2",  nombre: "María Fernanda Ruiz",    usuario: "asesor2",  pin: "2222", rol: "asesor" },
+  { id: "compras1", nombre: "Laura Gómez",            usuario: "compras1", pin: "3333", rol: "administrativo", asignados: ["asesor1"] },
+  { id: "admin",    nombre: "Administración Central", usuario: "admin",    pin: "9999", rol: "admin" },
 ];
 
 const STORE_KEY = "expedientes_compras_v1";
+const USERS_KEY = "expedientes_usuarios_v1";
 const SESSION_KEY = "expedientes_sesion_v1";
 const MAX_PDF_MB = 2.5; // límite por PDF para no llenar localStorage
 
 let expedientes = [];
+let usuarios = [];
 let sesion = null;
 let expedienteAbierto = null;
 let docEnSubida = null;     // key del documento al que se agregan archivos
-let revisionActual = null;  // {expId, docKey} en revisión por admin
+let revisionActual = null;  // {expId, docKey} en revisión
 let tabAdmin = "pendientes";
 
 /* ---------------- Persistencia ---------------- */
 
 function cargar() {
   try {
+    usuarios = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+  } catch (e) { usuarios = []; }
+  if (usuarios.length === 0) usuarios = JSON.parse(JSON.stringify(USUARIOS_BASE));
+  migrarUsuarios();
+
+  try {
     expedientes = JSON.parse(localStorage.getItem(STORE_KEY)) || [];
   } catch (e) { expedientes = []; }
   migrar();
   if (expedientes.length === 0) sembrarDemo();
+
   const s = localStorage.getItem(SESSION_KEY);
-  if (s) sesion = USUARIOS.find(u => u.id === s) || null;
+  if (s) sesion = usuarios.find(u => u.id === s) || null;
 }
 
-// Convierte datos de la versión anterior (una sola imagen por documento)
+// Asegura que los usuarios base existan y que los administrativos
+// tengan lista de asignados.
+function migrarUsuarios() {
+  USUARIOS_BASE.forEach(b => {
+    if (!usuarios.find(u => u.id === b.id)) usuarios.push(JSON.parse(JSON.stringify(b)));
+  });
+  usuarios.forEach(u => {
+    if (u.rol === "administrativo" && !Array.isArray(u.asignados)) u.asignados = [];
+  });
+  guardarUsuarios();
+}
+
+// Convierte datos de versiones anteriores (una sola imagen por documento)
 // al formato nuevo (lista de archivos).
 function migrar() {
   let cambio = false;
@@ -70,6 +96,16 @@ function guardar() {
     return true;
   } catch (e) {
     toast("⚠️ Memoria del navegador llena. Borra archivos o expedientes de prueba.");
+    return false;
+  }
+}
+
+function guardarUsuarios() {
+  try {
+    localStorage.setItem(USERS_KEY, JSON.stringify(usuarios));
+    return true;
+  } catch (e) {
+    toast("⚠️ No se pudo guardar la configuración de usuarios.");
     return false;
   }
 }
@@ -116,7 +152,7 @@ function imagenDemo() {
 function doLogin() {
   const u = document.getElementById("login-user").value.trim().toLowerCase();
   const p = document.getElementById("login-pin").value.trim();
-  const user = USUARIOS.find(x => x.usuario === u && x.pin === p);
+  const user = usuarios.find(x => x.usuario === u && x.pin === p);
   if (!user) {
     document.getElementById("login-error").classList.remove("hidden");
     return;
@@ -125,13 +161,14 @@ function doLogin() {
 }
 
 function quickLogin(id) {
-  entrar(USUARIOS.find(u => u.id === id));
+  entrar(usuarios.find(u => u.id === id));
 }
 
 function entrar(user) {
   sesion = user;
   localStorage.setItem(SESSION_KEY, user.id);
   document.getElementById("login-error").classList.add("hidden");
+  tabAdmin = "pendientes";
   render();
 }
 
@@ -152,7 +189,7 @@ function mostrar(idVista) {
 
 function render() {
   if (!sesion) { mostrar("view-login"); return; }
-  if (sesion.rol === "admin") { renderAdmin(); return; }
+  if (sesion.rol === "admin" || sesion.rol === "administrativo") { renderAdmin(); return; }
   if (expedienteAbierto) { renderExpediente(); return; }
   renderAsesor();
 }
@@ -188,13 +225,28 @@ function fechaCorta(iso) {
     " " + d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
 
+function nombreDe(id) {
+  const u = usuarios.find(x => x.id === id);
+  return u ? u.nombre : "—";
+}
+
+// Expedientes que el usuario en sesión tiene derecho a ver
+function expedientesVisibles() {
+  if (sesion.rol === "admin") return expedientes;
+  if (sesion.rol === "administrativo") {
+    const ids = sesion.asignados || [];
+    return expedientes.filter(e => ids.includes(e.asesorId));
+  }
+  return expedientes.filter(e => e.asesorId === sesion.id);
+}
+
 /* ---------------- Vista: asesor ---------------- */
 
 function renderAsesor() {
   mostrar("view-asesor");
   document.getElementById("asesor-nombre").textContent = sesion.nombre;
 
-  const mios = expedientes.filter(e => e.asesorId === sesion.id);
+  const mios = expedientesVisibles();
   let completos = 0, correcciones = 0;
   mios.forEach(e => {
     const r = resumenExpediente(e);
@@ -477,16 +529,28 @@ function abrirPdf(dataUrl) {
 
 function adminTab(t) {
   tabAdmin = t;
-  document.getElementById("tab-pendientes").classList.toggle("active", t === "pendientes");
-  document.getElementById("tab-todos").classList.toggle("active", t === "todos");
   renderAdmin();
 }
 
 function renderAdmin() {
   mostrar("view-admin");
 
+  const esCentral = sesion.rol === "admin";
+  document.getElementById("admin-titulo").textContent = esCentral ? "Administración Central" : sesion.nombre;
+  document.getElementById("admin-sub").textContent = esCentral
+    ? "Revisión de documentos y configuración"
+    : `Administrativo de compras · ${(sesion.asignados || []).length} asesor(es) asignado(s)`;
+  document.getElementById("tab-config").classList.toggle("hidden", !esCentral);
+  if (!esCentral && tabAdmin === "config") tabAdmin = "pendientes";
+
+  document.getElementById("tab-pendientes").classList.toggle("active", tabAdmin === "pendientes");
+  document.getElementById("tab-todos").classList.toggle("active", tabAdmin === "todos");
+  document.getElementById("tab-config").classList.toggle("active", tabAdmin === "config");
+
+  const visibles = expedientesVisibles();
+
   const cola = [];
-  expedientes.forEach(exp => {
+  visibles.forEach(exp => {
     CHECKLIST.forEach(c => {
       if (exp.docs[c.key].estado === "revision") {
         cola.push({ exp, doc: c, data: exp.docs[c.key] });
@@ -497,20 +561,21 @@ function renderAdmin() {
 
   const cont = document.getElementById("admin-lista");
 
+  if (tabAdmin === "config") { renderConfig(cont); return; }
+
   if (tabAdmin === "pendientes") {
     if (cola.length === 0) {
-      cont.innerHTML = `<div class="empty"><span class="big">🎉</span>No hay documentos pendientes de revisar.</div>`;
+      cont.innerHTML = `<div class="empty"><span class="big">🎉</span>No hay documentos pendientes de revisar${esCentral ? "" : " de tus asesores asignados"}.</div>`;
       return;
     }
     cont.innerHTML = cola.map(item => {
-      const asesor = USUARIOS.find(u => u.id === item.exp.asesorId);
       const n = item.data.archivos.length;
       return `
       <div class="card" onclick="abrirRevision('${item.exp.id}','${item.doc.key}')">
         <div class="card-row">
           <div>
             <div class="card-title">${item.doc.nombre}</div>
-            <div class="card-sub">Cliente: ${esc(item.exp.cliente)} · Asesor: ${asesor ? esc(asesor.nombre) : "—"}</div>
+            <div class="card-sub">Cliente: ${esc(item.exp.cliente)} · Asesor: ${esc(nombreDe(item.exp.asesorId))}</div>
             <div class="card-sub">${n} archivo${n !== 1 ? "s" : ""} · Subido ${fechaCorta(ultimaSubida(item.data))}</div>
           </div>
           <span class="estado estado-revision">Revisar →</span>
@@ -520,13 +585,13 @@ function renderAdmin() {
     return;
   }
 
-  if (expedientes.length === 0) {
-    cont.innerHTML = `<div class="empty"><span class="big">📂</span>No hay expedientes registrados.</div>`;
+  // Tab: expedientes
+  if (visibles.length === 0) {
+    cont.innerHTML = `<div class="empty"><span class="big">📂</span>${esCentral ? "No hay expedientes registrados." : "Tus asesores asignados aún no tienen expedientes, o no tienes asesores asignados. Pide a Administración Central que revise tu asignación en ⚙️ Configuración."}</div>`;
     return;
   }
-  cont.innerHTML = expedientes.map(exp => {
+  cont.innerHTML = visibles.map(exp => {
     const r = resumenExpediente(exp);
-    const asesor = USUARIOS.find(u => u.id === exp.asesorId);
     const pct = Math.round(r.aprobados / CHECKLIST.length * 100);
     const filas = CHECKLIST.map(c => {
       const d = exp.docs[c.key];
@@ -539,7 +604,7 @@ function renderAdmin() {
       <div class="card-row">
         <div>
           <div class="card-title">${esc(exp.cliente)}</div>
-          <div class="card-sub">Asesor: ${asesor ? esc(asesor.nombre) : "—"} · ${esc(exp.unidad || "")}</div>
+          <div class="card-sub">Asesor: ${esc(nombreDe(exp.asesorId))} · ${esc(exp.unidad || "")}</div>
         </div>
         <span class="estado ${r.clase}">${r.etiqueta}</span>
       </div>
@@ -552,18 +617,140 @@ function renderAdmin() {
   }).join("");
 }
 
+/* ---------------- Configuración (solo Administración Central) ---------------- */
+
+function renderConfig(cont) {
+  const asesores = usuarios.filter(u => u.rol === "asesor");
+  const administrativos = usuarios.filter(u => u.rol === "administrativo");
+
+  const listaUsuarios = usuarios
+    .filter(u => u.rol !== "admin")
+    .map(u => {
+      const rolTxt = u.rol === "asesor" ? "Asesor de ventas" : "Administrativo de compras";
+      const tieneExp = expedientes.some(e => e.asesorId === u.id);
+      return `
+      <div class="config-usuario">
+        <div>
+          <b>${esc(u.nombre)}</b>
+          <div class="card-sub">${rolTxt} · usuario: <code>${esc(u.usuario)}</code> · PIN: <code>${esc(u.pin)}</code></div>
+        </div>
+        ${tieneExp
+          ? `<span class="doc-conteo">con expedientes</span>`
+          : `<button class="archivo-borrar" title="Dar de baja" onclick="eliminarUsuario('${u.id}')">✕</button>`}
+      </div>`;
+    }).join("");
+
+  const asignaciones = administrativos.length === 0
+    ? `<p class="card-sub">Aún no hay administrativos de compras dados de alta.</p>`
+    : administrativos.map(adm => {
+      const checks = asesores.length === 0
+        ? `<p class="card-sub">No hay asesores dados de alta.</p>`
+        : asesores.map(a => `
+          <label class="config-check">
+            <input type="checkbox" ${(adm.asignados || []).includes(a.id) ? "checked" : ""}
+              onchange="toggleAsignacion('${adm.id}','${a.id}', this.checked)">
+            <span>${esc(a.nombre)}</span>
+          </label>`).join("");
+      const n = (adm.asignados || []).length;
+      return `
+      <div class="card" style="cursor:default">
+        <div class="card-title">🗂️ ${esc(adm.nombre)}</div>
+        <div class="card-sub">Ve los expedientes de ${n} asesor${n !== 1 ? "es" : ""}. Marca o desmarca para cambiar la asignación — el cambio aplica de inmediato.</div>
+        <div class="config-checks">${checks}</div>
+      </div>`;
+    }).join("");
+
+  cont.innerHTML = `
+    <div class="card" style="cursor:default">
+      <div class="card-row">
+        <div class="card-title">👥 Usuarios</div>
+        <button class="btn btn-primary" onclick="abrirNuevoUsuario()">＋ Dar de alta</button>
+      </div>
+      <div class="config-usuarios">${listaUsuarios || `<p class="card-sub">Sin usuarios.</p>`}</div>
+    </div>
+
+    <h3 class="config-seccion">Asignación de asesores por administrativo</h3>
+    ${asignaciones}`;
+}
+
+function abrirNuevoUsuario() {
+  document.getElementById("user-nombre").value = "";
+  document.getElementById("user-usuario").value = "";
+  document.getElementById("user-pin").value = "";
+  document.getElementById("user-rol").value = "asesor";
+  document.getElementById("user-error").classList.add("hidden");
+  document.getElementById("modal-usuario").classList.remove("hidden");
+}
+
+function crearUsuario() {
+  const nombre = document.getElementById("user-nombre").value.trim();
+  const usuario = document.getElementById("user-usuario").value.trim().toLowerCase().replace(/\s+/g, "");
+  const pin = document.getElementById("user-pin").value.trim();
+  const rol = document.getElementById("user-rol").value;
+  const err = document.getElementById("user-error");
+
+  let msg = null;
+  if (!nombre || !usuario || !pin) msg = "Llena todos los campos.";
+  else if (!/^\d{4}$/.test(pin)) msg = "El PIN debe ser exactamente 4 dígitos.";
+  else if (usuarios.find(u => u.usuario === usuario)) msg = `El usuario "${usuario}" ya existe, elige otro.`;
+
+  if (msg) {
+    err.textContent = msg;
+    err.classList.remove("hidden");
+    return;
+  }
+
+  const nuevo = { id: "u-" + Date.now(), nombre, usuario, pin, rol };
+  if (rol === "administrativo") nuevo.asignados = [];
+  usuarios.push(nuevo);
+  guardarUsuarios();
+  cerrarModal("modal-usuario");
+  toast(`✅ ${nombre} dado de alta como ${rol === "asesor" ? "asesor" : "administrativo de compras"}`);
+  renderAdmin();
+}
+
+function eliminarUsuario(id) {
+  const u = usuarios.find(x => x.id === id);
+  if (!u) return;
+  if (expedientes.some(e => e.asesorId === id)) {
+    toast("No se puede dar de baja: tiene expedientes registrados.");
+    return;
+  }
+  if (!confirm(`¿Dar de baja a ${u.nombre}?`)) return;
+  usuarios = usuarios.filter(x => x.id !== id);
+  // También se quita de las asignaciones de los administrativos
+  usuarios.forEach(x => {
+    if (x.rol === "administrativo" && Array.isArray(x.asignados)) {
+      x.asignados = x.asignados.filter(a => a !== id);
+    }
+  });
+  guardarUsuarios();
+  toast(`Usuario ${u.nombre} dado de baja.`);
+  renderAdmin();
+}
+
+function toggleAsignacion(admId, asesorId, checked) {
+  const adm = usuarios.find(u => u.id === admId);
+  if (!adm) return;
+  adm.asignados = adm.asignados || [];
+  if (checked && !adm.asignados.includes(asesorId)) adm.asignados.push(asesorId);
+  if (!checked) adm.asignados = adm.asignados.filter(a => a !== asesorId);
+  guardarUsuarios();
+  toast(`Asignación de ${adm.nombre} actualizada: ${adm.asignados.length} asesor(es).`);
+  renderAdmin();
+}
+
 /* ---------------- Revisión de documento ---------------- */
 
 function abrirRevision(expId, docKey) {
   revisionActual = { expId, docKey };
   const exp = expedientes.find(e => e.id === expId);
   const c = CHECKLIST.find(x => x.key === docKey);
-  const asesor = USUARIOS.find(u => u.id === exp.asesorId);
   const d = exp.docs[docKey];
 
   document.getElementById("rev-titulo").textContent = c.nombre;
   document.getElementById("rev-sub").textContent =
-    `Cliente: ${exp.cliente} · Asesor: ${asesor ? asesor.nombre : "—"} · ${d.archivos.length} archivo${d.archivos.length !== 1 ? "s" : ""}`;
+    `Cliente: ${exp.cliente} · Asesor: ${nombreDe(exp.asesorId)} · ${d.archivos.length} archivo${d.archivos.length !== 1 ? "s" : ""}`;
 
   document.getElementById("rev-archivos").innerHTML = d.archivos.map((a, j) => {
     if (a.tipo === "pdf") {
