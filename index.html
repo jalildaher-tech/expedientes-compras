@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a3a5c">
+<title>Expedientes de Compras · DSN</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ==================== PANTALLA: LOGIN ==================== -->
+<section id="view-login" class="view">
+  <div class="login-box">
+    <div class="login-logo">📁</div>
+    <h1>Expedientes de Compras</h1>
+    <p class="login-sub">Trazabilidad de documentos para asesores de venta</p>
+
+    <div class="field">
+      <label for="login-user">Usuario</label>
+      <input type="text" id="login-user" autocomplete="username" placeholder="ej. asesor1">
+    </div>
+    <div class="field">
+      <label for="login-pin">PIN</label>
+      <input type="password" id="login-pin" inputmode="numeric" autocomplete="current-password" placeholder="4 dígitos">
+    </div>
+    <p id="login-error" class="error hidden">Usuario o PIN incorrecto.</p>
+    <button class="btn btn-primary btn-block" onclick="doLogin()">Entrar</button>
+
+    <div class="demo-accounts">
+      <p>Cuentas de demostración — toca para entrar:</p>
+      <button class="chip" onclick="quickLogin('asesor1')">👤 Carlos (Asesor)</button>
+      <button class="chip" onclick="quickLogin('asesor2')">👤 María (Asesora)</button>
+      <button class="chip chip-admin" onclick="quickLogin('admin')">🛡️ Administración Central</button>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PANTALLA: ASESOR ==================== -->
+<section id="view-asesor" class="view hidden">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">Mis expedientes</div>
+      <div class="topbar-sub" id="asesor-nombre"></div>
+    </div>
+    <button class="btn-ghost" onclick="logout()">Salir</button>
+  </header>
+
+  <div class="stats-row" id="asesor-stats"></div>
+
+  <div class="list" id="lista-expedientes"></div>
+
+  <button class="fab" onclick="abrirNuevoExpediente()" title="Nuevo expediente">＋</button>
+</section>
+
+<!-- ==================== PANTALLA: DETALLE EXPEDIENTE ==================== -->
+<section id="view-expediente" class="view hidden">
+  <header class="topbar">
+    <button class="btn-ghost" onclick="volverDeExpediente()">← Volver</button>
+    <button class="btn-ghost" onclick="logout()">Salir</button>
+  </header>
+
+  <div class="exp-header">
+    <h2 id="exp-cliente"></h2>
+    <div class="exp-meta" id="exp-meta"></div>
+    <div class="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="exp-progress"></div></div>
+      <span class="progress-label" id="exp-progress-label"></span>
+    </div>
+  </div>
+
+  <div class="list" id="lista-documentos"></div>
+
+  <input type="file" id="input-camara" accept="image/*" capture="environment" class="hidden">
+</section>
+
+<!-- ==================== PANTALLA: ADMIN ==================== -->
+<section id="view-admin" class="view hidden">
+  <header class="topbar topbar-admin">
+    <div>
+      <div class="topbar-title">Administración Central</div>
+      <div class="topbar-sub">Revisión de documentos</div>
+    </div>
+    <button class="btn-ghost" onclick="logout()">Salir</button>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" id="tab-pendientes" onclick="adminTab('pendientes')">Por revisar <span class="badge" id="badge-pendientes">0</span></button>
+    <button class="tab" id="tab-todos" onclick="adminTab('todos')">Todos los expedientes</button>
+  </div>
+
+  <div class="list" id="admin-lista"></div>
+</section>
+
+<!-- ==================== MODAL: NUEVO EXPEDIENTE ==================== -->
+<div id="modal-nuevo" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Nuevo expediente</h3>
+    <div class="field">
+      <label for="nuevo-cliente">Nombre del cliente *</label>
+      <input type="text" id="nuevo-cliente" placeholder="ej. Juan Pérez López">
+    </div>
+    <div class="field">
+      <label for="nuevo-unidad">Unidad / referencia (opcional)</label>
+      <input type="text" id="nuevo-unidad" placeholder="ej. Nissan Versa 2021 blanco">
+    </div>
+    <p id="nuevo-error" class="error hidden">Escribe el nombre del cliente.</p>
+    <div class="modal-actions">
+      <button class="btn" onclick="cerrarModal('modal-nuevo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="crearExpediente()">Crear</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODAL: REVISIÓN DE DOCUMENTO (ADMIN) ==================== -->
+<div id="modal-revision" class="modal-overlay hidden">
+  <div class="modal modal-wide">
+    <h3 id="rev-titulo"></h3>
+    <p class="rev-sub" id="rev-sub"></p>
+    <div class="rev-img-wrap"><img id="rev-img" alt="Documento a revisar"></div>
+    <div class="field">
+      <label for="rev-motivo">Motivo de rechazo (solo si rechazas)</label>
+      <input type="text" id="rev-motivo" placeholder="ej. Foto borrosa, falta la última hoja…">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="cerrarModal('modal-revision')">Cerrar</button>
+      <button class="btn btn-danger" onclick="resolverRevision('rechazado')">✕ Rechazar</button>
+      <button class="btn btn-success" onclick="resolverRevision('aprobado')">✓ Legible y completo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODAL: VER FOTO (ASESOR) ==================== -->
+<div id="modal-foto" class="modal-overlay hidden">
+  <div class="modal modal-wide">
+    <h3 id="foto-titulo"></h3>
+    <div class="rev-img-wrap"><img id="foto-img" alt="Documento"></div>
+    <div class="modal-actions">
+      <button class="btn btn-block" onclick="cerrarModal('modal-foto')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
