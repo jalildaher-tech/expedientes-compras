@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#1a3a5c">
 <title>Expedientes de Compras · DSN</title>
-<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 
@@ -108,6 +108,24 @@
 </div>
 <input type="file" id="input-inv" accept="application/pdf,.pdf" multiple class="hidden">
 
+<!-- ==================== MODAL: NÚMERO DE SERIE (VIN) ==================== -->
+<div id="modal-vin" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>🔢 Número de serie (VIN)</h3>
+    <p class="rev-sub" id="vin-sub"></p>
+    <div class="field">
+      <label for="vin-input">Número de serie completo</label>
+      <input type="text" id="vin-input" maxlength="17" autocapitalize="characters" placeholder="17 caracteres, ej. 3N1CK3CD9JL212345">
+    </div>
+    <p class="rev-sub" id="vin-estado"></p>
+    <div class="modal-actions">
+      <button class="btn" onclick="cerrarModal('modal-vin')">Cerrar</button>
+      <button class="btn" id="vin-btn-leer" onclick="leerVinAuto()">🔍 Leer de los documentos</button>
+      <button class="btn btn-primary" onclick="guardarVin()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ==================== MODAL: NUEVO USUARIO ==================== -->
 <div id="modal-usuario" class="modal-overlay hidden">
   <div class="modal">
@@ -191,6 +209,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

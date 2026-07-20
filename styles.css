@@ -296,6 +296,10 @@ body {
   flex-wrap: wrap;
 }
 .doc-inv { border-left: 4px solid var(--azul-claro); }
+.inv-guardado {
+  background: var(--verde-suave);
+  border: 1px solid var(--verde);
+}
 
 /* ---------- Configuración ---------- */
 .config-usuarios { margin-top: 12px; }

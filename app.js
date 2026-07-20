@@ -50,6 +50,9 @@ let revisionActual = null;  // {expId, docKey} en revisión
 let tabAdmin = "pendientes";
 let invExpAbierta = null;   // id del expediente en el modal de investigación
 let invEnSubida = null;     // key de la investigación a la que se sube PDF
+let vinExpId = null;        // id del expediente en el modal de número de serie
+let carpetaHandle = null;   // carpeta destino elegida (File System Access API)
+const scriptsCargados = {}; // librerías externas ya cargadas (OCR, ZIP)
 
 /* ---------------- Persistencia ---------------- */
 
@@ -187,6 +190,72 @@ function imagenDemo() {
   x.fillText("DOCUMENTO", 200, 240);
   x.fillText("DE PRUEBA", 200, 280);
   return c.toDataURL("image/jpeg", 0.7);
+}
+
+/* ---------------- Configuración de carpeta destino ----------------
+   La carpeta elegida se guarda en IndexedDB (localStorage no puede
+   almacenar "handles" de carpetas). Solo funciona en Chrome/Edge de
+   computadora; en otros navegadores se descarga un ZIP. */
+
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open("expedientes_config", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+
+async function idbGet(k) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const t = db.transaction("kv").objectStore("kv").get(k);
+    t.onsuccess = () => res(t.result);
+    t.onerror = () => rej(t.error);
+  });
+}
+
+async function idbSet(k, v) {
+  const db = await idbOpen();
+  return new Promise((res, rej) => {
+    const t = db.transaction("kv", "readwrite").objectStore("kv").put(v, k);
+    t.onsuccess = () => res();
+    t.onerror = () => rej(t.error);
+  });
+}
+
+async function cargarCarpeta() {
+  try {
+    carpetaHandle = await idbGet("carpetaExpedientes") || null;
+  } catch (e) { carpetaHandle = null; }
+}
+
+async function elegirCarpeta() {
+  if (!window.showDirectoryPicker) {
+    toast("Este navegador no permite elegir carpeta (usa Chrome o Edge en computadora). Los expedientes se descargarán como ZIP.");
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+    carpetaHandle = handle;
+    await idbSet("carpetaExpedientes", handle);
+    toast(`📁 Carpeta configurada: ${handle.name}`);
+    renderAdmin();
+  } catch (e) {
+    if (e && e.name !== "AbortError") toast("No se pudo elegir la carpeta.");
+  }
+}
+
+function cargarScript(url) {
+  if (scriptsCargados[url]) return scriptsCargados[url];
+  scriptsCargados[url] = new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = url;
+    s.onload = () => res();
+    s.onerror = () => { delete scriptsCargados[url]; rej(new Error("No se pudo cargar " + url)); };
+    document.head.appendChild(s);
+  });
+  return scriptsCargados[url];
 }
 
 /* ---------------- Sesión ---------------- */
@@ -687,6 +756,18 @@ function renderAdmin() {
       : `<div class="inv-titulo">🔒 Investigación no disponible</div>
          <div class="doc-fecha">Se desbloquea al aprobar: ${disp.faltan.join(", ")}.</div>`;
 
+    const completo = expCompleto(exp);
+    const guardadoBloque = !completo ? "" : `
+      <div class="inv-bloque inv-guardado">
+        <div class="inv-titulo">💾 Expediente completo ${exp.guardado ? `<span class="estado estado-completo">Guardado</span>` : `<span class="estado estado-revision">Sin guardar</span>`}</div>
+        <div class="doc-fecha">Número de serie: ${exp.vin ? `<b>${esc(exp.vin)}</b> · Carpeta: <b>${esc(nombreCarpetaExp(exp))}</b>` : "sin capturar — se necesita para nombrar la carpeta"}</div>
+        ${exp.guardado ? `<div class="doc-fecha">Guardado ${fechaCorta(exp.guardado.fecha)} en ${esc(exp.guardado.destino)}</div>` : ""}
+        <div class="doc-actions">
+          <button class="btn" onclick="abrirVin('${exp.id}')">🔢 Número de serie</button>
+          <button class="btn btn-success" onclick="guardarExpedienteCompleto('${exp.id}')">💾 Guardar ${exp.guardado ? "de nuevo" : "en carpeta"}</button>
+        </div>
+      </div>`;
+
     return `
     <div class="card" style="cursor:default">
       <div class="card-row">
@@ -702,6 +783,7 @@ function renderAdmin() {
       </div>
       <div class="doc-fecha" style="margin-top:10px;line-height:1.9">${filas}</div>
       <div class="inv-bloque">${invBloque}</div>
+      ${guardadoBloque}
     </div>`;
   }).join("");
 }
@@ -774,6 +856,7 @@ async function procesarInvArchivos(fileList) {
   } else if (agregados > 0) {
     const r = invResumen(exp);
     toast(r.completa ? "✅ Investigación completa: las 5 quedaron listas" : `📄 PDF guardado (${r.hechas}/${r.total} investigaciones)`);
+    avisarSiCompleto(exp);
   }
   if (grandes > 0) toast(`⚠️ ${grandes} PDF supera ${MAX_PDF_MB} MB y no se subió.`);
   if (noPdf > 0) toast("⚠️ Solo se aceptan archivos PDF en la investigación.");
@@ -844,6 +927,7 @@ function renderConfig(cont) {
       </div>`;
     }).join("");
 
+  const soportaCarpeta = !!window.showDirectoryPicker;
   cont.innerHTML = `
     <div class="card" style="cursor:default">
       <div class="card-row">
@@ -851,6 +935,19 @@ function renderConfig(cont) {
         <button class="btn btn-primary" onclick="abrirNuevoUsuario()">＋ Dar de alta</button>
       </div>
       <div class="config-usuarios">${listaUsuarios || `<p class="card-sub">Sin usuarios.</p>`}</div>
+    </div>
+
+    <div class="card" style="cursor:default">
+      <div class="card-row">
+        <div class="card-title">📁 Carpeta de expedientes completos</div>
+        <button class="btn btn-primary" onclick="elegirCarpeta()">Elegir carpeta…</button>
+      </div>
+      <div class="card-sub" style="margin-top:8px">
+        ${carpetaHandle
+          ? `Carpeta configurada: <b>${esc(carpetaHandle.name)}</b>. Cada expediente completo se guardará ahí en una subcarpeta con los últimos 8 caracteres del número de serie y el nombre del cliente.`
+          : "Sin configurar. Al guardar un expediente completo se descargará un ZIP con el mismo nombre de carpeta."}
+      </div>
+      ${soportaCarpeta ? "" : `<div class="doc-fecha" style="margin-top:6px">⚠️ Este navegador no permite elegir carpeta (funciona en Chrome o Edge de computadora); mientras tanto se usará la descarga en ZIP.</div>`}
     </div>
 
     <h3 class="config-seccion">Asignación de asesores por administrativo</h3>
@@ -924,6 +1021,318 @@ function toggleAsignacion(admId, asesorId, checked) {
   renderAdmin();
 }
 
+/* ---------------- Número de serie (VIN) ---------------- */
+
+function expCompleto(exp) {
+  const r = resumenExpediente(exp);
+  return r.aprobados === CHECKLIST.length && invResumen(exp).completa;
+}
+
+function nombreCarpetaExp(exp) {
+  const vin8 = (exp.vin || "").slice(-8).toUpperCase();
+  return `${vin8} ${exp.cliente}`.replace(/[\\/:*?"<>|]/g, "-").trim();
+}
+
+function abrirVin(expId) {
+  vinExpId = expId;
+  const exp = expedientes.find(e => e.id === expId);
+  if (!exp) return;
+  document.getElementById("vin-sub").textContent =
+    `Cliente: ${exp.cliente}. La carpeta usará los últimos 8 caracteres del número de serie.`;
+  document.getElementById("vin-input").value = exp.vin || "";
+  document.getElementById("vin-estado").textContent = exp.vin
+    ? "Número capturado. Puedes corregirlo o volver a leerlo."
+    : "Pulsa «Leer de los documentos» para detectarlo automáticamente, o escríbelo.";
+  document.getElementById("modal-vin").classList.remove("hidden");
+}
+
+/* Lectura de PDF (pdf.js): texto digital y render de páginas a imagen */
+
+async function cargarPdfJs() {
+  await cargarScript("https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js");
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+}
+
+function dataUrlABytes(dataUrl) {
+  const bin = atob(dataUrl.split(",")[1]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+const MAX_PAGINAS_PDF = 3; // páginas por PDF que se revisan buscando el VIN
+
+async function abrirDocPdf(dataUrl) {
+  await cargarPdfJs();
+  return pdfjsLib.getDocument({ data: dataUrlABytes(dataUrl) }).promise;
+}
+
+async function textoDePdf(pdf) {
+  let texto = "";
+  const n = Math.min(pdf.numPages, MAX_PAGINAS_PDF);
+  for (let p = 1; p <= n; p++) {
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    texto += tc.items.map(i => i.str).join(" ") + "\n";
+  }
+  return texto;
+}
+
+async function imagenDePaginaPdf(pdf, p) {
+  const page = await pdf.getPage(p);
+  const vp = page.getViewport({ scale: 2 });
+  const c = document.createElement("canvas");
+  c.width = vp.width; c.height = vp.height;
+  await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+  return c.toDataURL("image/png");
+}
+
+// Lee el VIN de los documentos de factura, tarjeta de circulación y
+// refrendos (fotos y PDFs). Orden: 1) texto digital de los PDF (exacto,
+// típico de facturas electrónicas), 2) OCR de las fotos, 3) OCR de las
+// páginas de PDFs escaneados.
+async function leerVinAuto() {
+  const exp = expedientes.find(e => e.id === vinExpId);
+  if (!exp) return;
+  const estado = document.getElementById("vin-estado");
+  const boton = document.getElementById("vin-btn-leer");
+
+  const archivos = [];
+  ["facturas", "tarjeta", "refrendos"].forEach(k => {
+    exp.docs[k].archivos.forEach(a => archivos.push(a));
+  });
+  const imagenes = archivos.filter(a => a.tipo === "imagen");
+  const pdfs = archivos.filter(a => a.tipo === "pdf");
+  if (archivos.length === 0) {
+    estado.textContent = "⚠️ No hay archivos de factura, tarjeta de circulación o refrendos en el expediente. Escríbelo manualmente.";
+    return;
+  }
+
+  boton.disabled = true;
+  let vin = null;
+  const escaneados = []; // PDFs sin texto digital, para OCR al final
+
+  // 1) Texto digital de los PDF
+  for (let i = 0; i < pdfs.length && !vin; i++) {
+    estado.textContent = `📄 Leyendo texto del PDF ${i + 1} de ${pdfs.length}…`;
+    try {
+      const pdf = await abrirDocPdf(pdfs[i].data);
+      const texto = await textoDePdf(pdf);
+      vin = buscarVin(texto);
+      if (!vin) escaneados.push(pdf);
+    } catch (e) { /* PDF ilegible: se intenta con los demás */ }
+  }
+
+  // 2) OCR de fotos
+  if (!vin && imagenes.length > 0) {
+    try {
+      estado.textContent = "Descargando lector de texto (solo la primera vez)…";
+      await cargarScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+      for (let i = 0; i < imagenes.length && !vin; i++) {
+        estado.textContent = `🔍 Leyendo foto ${i + 1} de ${imagenes.length}…`;
+        const res = await Tesseract.recognize(imagenes[i].data, "eng");
+        vin = buscarVin(res.data.text);
+      }
+    } catch (e) { /* sin internet para el lector; continúa */ }
+  }
+
+  // 3) OCR de páginas de PDFs escaneados
+  if (!vin && escaneados.length > 0) {
+    try {
+      await cargarScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+      for (let i = 0; i < escaneados.length && !vin; i++) {
+        const pdf = escaneados[i];
+        const n = Math.min(pdf.numPages, MAX_PAGINAS_PDF);
+        for (let p = 1; p <= n && !vin; p++) {
+          estado.textContent = `🔍 Leyendo PDF escaneado ${i + 1} de ${escaneados.length}, página ${p}…`;
+          const img = await imagenDePaginaPdf(pdf, p);
+          const res = await Tesseract.recognize(img, "eng");
+          vin = buscarVin(res.data.text);
+        }
+      }
+    } catch (e) { /* continúa al mensaje final */ }
+  }
+
+  if (vin) {
+    document.getElementById("vin-input").value = vin;
+    estado.textContent = "✅ Número de serie detectado. Verifícalo y pulsa Guardar.";
+  } else {
+    estado.textContent = "No se encontró un número de serie legible en los documentos. Escríbelo manualmente.";
+  }
+  boton.disabled = false;
+}
+
+// Un VIN tiene 17 caracteres y no usa I, O ni Q. En el texto leído puede
+// venir pegado a la etiqueta ("SERIE3N1CK..."), así que dentro de cada
+// tira válida se evalúan todas las ventanas de 17 y se elige la que tenga
+// más dígitos (los VIN son muy numéricos; las palabras pegadas no).
+function buscarVin(texto) {
+  const fuentes = (texto || "").toUpperCase().split("\n");
+  fuentes.push((texto || "").toUpperCase().replace(/\s+/g, ""));
+  let mejor = null, mejorPuntos = -1;
+  for (const fuente of fuentes) {
+    const tiras = fuente.replace(/[^A-Z0-9]/g, " ").replace(/[IOQ]/g, " ").split(/\s+/);
+    for (const tira of tiras) {
+      if (tira.length < 17) continue;
+      for (let i = 0; i + 17 <= tira.length; i++) {
+        const cand = tira.substr(i, 17);
+        const digitos = (cand.match(/\d/g) || []).length;
+        if (digitos === 0) continue;
+        // se prefiere más dígitos; en empate, la ventana más a la derecha
+        // (la etiqueta pegada suele estar a la izquierda)
+        if (digitos > mejorPuntos || (digitos === mejorPuntos && mejor && tira.includes(mejor))) {
+          mejor = cand; mejorPuntos = digitos;
+        }
+      }
+    }
+    if (mejor) return mejor; // primero por líneas; el texto plano es respaldo
+  }
+  return mejor;
+}
+
+function guardarVin() {
+  const exp = expedientes.find(e => e.id === vinExpId);
+  if (!exp) return;
+  const v = document.getElementById("vin-input").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (v.length < 8) {
+    document.getElementById("vin-estado").textContent = "⚠️ El número debe tener al menos 8 caracteres.";
+    return;
+  }
+  exp.vin = v;
+  guardar();
+  cerrarModal("modal-vin");
+  toast(`🔢 Número de serie guardado. Carpeta: ${nombreCarpetaExp(exp)}`);
+  renderAdmin();
+}
+
+/* ---------------- Guardado del expediente completo ---------------- */
+
+function extensionDe(dataUrl) {
+  const mime = (dataUrl || "").substring(5, (dataUrl || "").indexOf(";"));
+  if (mime === "application/pdf") return ".pdf";
+  if (mime === "image/png") return ".png";
+  return ".jpg";
+}
+
+function dataUrlABlob(dataUrl) {
+  const base64 = dataUrl.split(",")[1];
+  const mime = dataUrl.substring(5, dataUrl.indexOf(";"));
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+// Lista { nombre, blob } con todos los archivos del expediente
+function archivosDeExpediente(exp) {
+  const archivos = [];
+  CHECKLIST.forEach((c, i) => {
+    exp.docs[c.key].archivos.forEach((a, j) => {
+      archivos.push({
+        nombre: `${String(i + 1).padStart(2, "0")}-${c.key}-${j + 1}${extensionDe(a.data)}`,
+        blob: dataUrlABlob(a.data),
+      });
+    });
+  });
+  INVESTIGACIONES.forEach(inv => {
+    exp.investigaciones[inv.key].archivos.forEach((a, j) => {
+      archivos.push({
+        nombre: `investigacion-${inv.key}-${j + 1}${extensionDe(a.data)}`,
+        blob: dataUrlABlob(a.data),
+      });
+    });
+  });
+  const resumen = [
+    `Expediente: ${exp.cliente}`,
+    `Unidad: ${exp.unidad || "—"}`,
+    `Asesor: ${nombreDe(exp.asesorId)}`,
+    `Número de serie: ${exp.vin || "—"}`,
+    `Creado: ${fechaCorta(exp.creado)}`,
+    `Guardado: ${fechaCorta(new Date().toISOString())}`,
+    "",
+    "Documentos:",
+    ...CHECKLIST.map((c, i) => `  ${i + 1}. ${c.nombre}: ${exp.docs[c.key].estado} (${exp.docs[c.key].archivos.length} archivo(s))`),
+    "",
+    "Investigaciones:",
+    ...INVESTIGACIONES.map(inv => `  - ${inv.nombre}: ${exp.investigaciones[inv.key].archivos.length > 0 ? "lista" : "pendiente"}`),
+  ].join("\n");
+  archivos.push({ nombre: "expediente.txt", blob: new Blob([resumen], { type: "text/plain" }) });
+  return archivos;
+}
+
+async function guardarExpedienteCompleto(expId) {
+  const exp = expedientes.find(e => e.id === expId);
+  if (!exp) return;
+  if (!expCompleto(exp)) {
+    toast("El expediente aún no está completo (documentos aprobados + investigación).");
+    return;
+  }
+  if (!exp.vin) {
+    toast("Primero captura el número de serie.");
+    abrirVin(expId);
+    return;
+  }
+
+  const carpeta = nombreCarpetaExp(exp);
+  const archivos = archivosDeExpediente(exp);
+
+  // Opción 1: escribir directo en la carpeta configurada (Chrome/Edge)
+  if (carpetaHandle) {
+    try {
+      let perm = await carpetaHandle.queryPermission({ mode: "readwrite" });
+      if (perm !== "granted") perm = await carpetaHandle.requestPermission({ mode: "readwrite" });
+      if (perm === "granted") {
+        const dir = await carpetaHandle.getDirectoryHandle(carpeta, { create: true });
+        for (const f of archivos) {
+          const fh = await dir.getFileHandle(f.nombre, { create: true });
+          const w = await fh.createWritable();
+          await w.write(f.blob);
+          await w.close();
+        }
+        exp.guardado = { fecha: new Date().toISOString(), destino: `${carpetaHandle.name}/${carpeta}` };
+        guardar();
+        toast(`💾 Expediente guardado en ${carpetaHandle.name}/${carpeta} (${archivos.length} archivos)`);
+        renderAdmin();
+        return;
+      }
+      toast("Permiso a la carpeta denegado; se descargará como ZIP.");
+    } catch (e) {
+      toast("No se pudo escribir en la carpeta configurada; se descargará como ZIP.");
+    }
+  }
+
+  // Opción 2: descargar un ZIP con el nombre de la carpeta
+  try {
+    await cargarScript("https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js");
+    const zip = new JSZip();
+    const dir = zip.folder(carpeta);
+    archivos.forEach(f => dir.file(f.nombre, f.blob));
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${carpeta}.zip`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    exp.guardado = { fecha: new Date().toISOString(), destino: `ZIP: ${carpeta}.zip` };
+    guardar();
+    toast(`💾 ZIP descargado: ${carpeta}.zip (${archivos.length} archivos)`);
+    renderAdmin();
+  } catch (e) {
+    toast("⚠️ No se pudo generar el ZIP (¿sin internet?).");
+  }
+}
+
+// Aviso cuando un expediente llega a completo
+function avisarSiCompleto(exp) {
+  if (!expCompleto(exp)) return;
+  if (exp.guardado) return;
+  toast(exp.vin
+    ? `🎉 Expediente de ${exp.cliente} completo. Guárdalo con 💾 en la pestaña Expedientes.`
+    : `🎉 Expediente de ${exp.cliente} completo. Captura el número de serie y guárdalo con 💾.`);
+}
+
 /* ---------------- Revisión de documento ---------------- */
 
 function abrirRevision(expId, docKey) {
@@ -970,6 +1379,7 @@ function resolverRevision(resultado) {
   revisionActual = null;
   cerrarModal("modal-revision");
   toast(resultado === "aprobado" ? "✅ Documento aprobado" : "❌ Documento rechazado, se notificó al asesor");
+  avisarSiCompleto(exp);
   renderAdmin();
 }
 
@@ -994,4 +1404,5 @@ function esc(s) {
 
 /* ---------------- Arranque ---------------- */
 cargar();
+cargarCarpeta();
 document.addEventListener("DOMContentLoaded", render);

@@ -49,6 +49,17 @@ documentos están aprobados y la investigación está terminada.
 
 Un expediente queda **Completo** cuando sus 6 documentos están aprobados.
 
+## Guardado de expedientes completos
+
+Cuando un expediente queda completo (7 documentos aprobados + 5 investigaciones),
+Administración Central puede guardarlo con el botón 💾. El número de serie (VIN)
+se lee automáticamente por OCR de las fotos de factura / tarjeta de circulación /
+refrendos (con corrección manual). La carpeta se nombra con los **últimos 8
+caracteres del número de serie + nombre del cliente**.
+
+En ⚙️ Configuración se elige la carpeta destino (Chrome/Edge de computadora);
+en otros navegadores se descarga un ZIP con el mismo nombre.
+
 ## Importante: alcance del prototipo
 
 Esta es una versión de prueba (Fase 1). Los datos y las fotos se guardan **solo en el
