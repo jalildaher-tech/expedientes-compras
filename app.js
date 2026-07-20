@@ -10,12 +10,23 @@
    ============================================================ */
 
 const CHECKLIST = [
-  { key: "facturas",  nombre: "Consecutivo de facturas" },
-  { key: "tarjeta",   nombre: "Tarjeta de circulación" },
-  { key: "refrendos", nombre: "Consecutivo de refrendos" },
-  { key: "ine",       nombre: "INE del cliente" },
-  { key: "csf",       nombre: "Constancia de situación fiscal" },
-  { key: "baja",      nombre: "Baja de placas" },
+  { key: "facturas",    nombre: "Consecutivo de facturas" },
+  { key: "tarjeta",     nombre: "Tarjeta de circulación" },
+  { key: "refrendos",   nombre: "Consecutivo de refrendos" },
+  { key: "ine",         nombre: "INE del cliente" },
+  { key: "csf",         nombre: "Constancia de situación fiscal" },
+  { key: "baja",        nombre: "Baja de placas" },
+  { key: "kilometraje", nombre: "Kilometraje en odómetro" },
+];
+
+// Investigaciones que realiza el administrativo de compras (un PDF cada una).
+// El check se marca automáticamente al subir el PDF.
+const INVESTIGACIONES = [
+  { key: "repuve",     nombre: "REPUVE" },
+  { key: "adeudos",    nombre: "Adeudos vehiculares" },
+  { key: "rug",        nombre: "RUG" },
+  { key: "transunion", nombre: "Transunion" },
+  { key: "rapi",       nombre: "RAPI" },
 ];
 
 const USUARIOS_BASE = [
@@ -37,6 +48,8 @@ let expedienteAbierto = null;
 let docEnSubida = null;     // key del documento al que se agregan archivos
 let revisionActual = null;  // {expId, docKey} en revisión
 let tabAdmin = "pendientes";
+let invExpAbierta = null;   // id del expediente en el modal de investigación
+let invEnSubida = null;     // key de la investigación a la que se sube PDF
 
 /* ---------------- Persistencia ---------------- */
 
@@ -86,8 +99,36 @@ function migrar() {
         cambio = true;
       }
     });
+    if (!exp.investigaciones) { exp.investigaciones = invVacia(); cambio = true; }
+    INVESTIGACIONES.forEach(i => {
+      if (!exp.investigaciones[i.key]) { exp.investigaciones[i.key] = { archivos: [] }; cambio = true; }
+    });
   });
   if (cambio) guardar();
+}
+
+function invVacia() {
+  const inv = {};
+  INVESTIGACIONES.forEach(i => inv[i.key] = { archivos: [] });
+  return inv;
+}
+
+// La investigación se desbloquea cuando están APROBADOS:
+// consecutivo de facturas, (tarjeta de circulación O consecutivo de
+// refrendos), kilometraje en odómetro e INE.
+function invDisponible(exp) {
+  const ap = k => exp.docs[k].estado === "aprobado";
+  const faltan = [];
+  if (!ap("facturas")) faltan.push("Consecutivo de facturas");
+  if (!ap("tarjeta") && !ap("refrendos")) faltan.push("Tarjeta de circulación o Consecutivo de refrendos");
+  if (!ap("kilometraje")) faltan.push("Kilometraje en odómetro");
+  if (!ap("ine")) faltan.push("INE del cliente");
+  return { disponible: faltan.length === 0, faltan };
+}
+
+function invResumen(exp) {
+  const hechas = INVESTIGACIONES.filter(i => exp.investigaciones[i.key].archivos.length > 0).length;
+  return { hechas, total: INVESTIGACIONES.length, completa: hechas === INVESTIGACIONES.length };
 }
 
 function guardar() {
@@ -129,6 +170,7 @@ function sembrarDemo() {
     unidad: "Nissan Versa 2021",
     creado: hoy,
     docs: crearDocs(),
+    investigaciones: invVacia(),
   };
   exp.docs.ine = { estado: "aprobado", archivos: [{ tipo: "imagen", data: imagenDemo(), nombre: "Foto", subido: hoy }], revisado: hoy, motivo: null };
   exp.docs.tarjeta = { estado: "revision", archivos: [{ tipo: "imagen", data: imagenDemo(), nombre: "Foto", subido: hoy }], revisado: null, motivo: null };
@@ -204,8 +246,10 @@ function resumenExpediente(exp) {
     else if (e === "revision") enRevision++;
     else if (e === "rechazado") rechazados++;
   });
+  const inv = invResumen(exp);
   let etiqueta, clase;
-  if (aprobados === CHECKLIST.length) { etiqueta = "✓ Completo"; clase = "estado-completo"; }
+  if (aprobados === CHECKLIST.length && inv.completa) { etiqueta = "✓ Completo"; clase = "estado-completo"; }
+  else if (aprobados === CHECKLIST.length) { etiqueta = "Falta investigación"; clase = "estado-revision"; }
   else if (rechazados > 0) { etiqueta = "Requiere corrección"; clase = "estado-rechazado"; }
   else if (enRevision > 0) { etiqueta = "En revisión"; clase = "estado-revision"; }
   else { etiqueta = "En proceso"; clase = "estado-proceso"; }
@@ -306,6 +350,7 @@ function crearExpediente() {
     unidad: document.getElementById("nuevo-unidad").value.trim(),
     creado: new Date().toISOString(),
     docs: crearDocs(),
+    investigaciones: invVacia(),
   };
   expedientes.unshift(exp);
   guardar();
@@ -375,7 +420,35 @@ function renderExpediente() {
         <button class="btn" onclick="subirArchivo('${c.key}')">📎 Subir PDF o imagen</button>
       </div>` : ""}
     </div>`;
-  }).join("");
+  }).join("") + investigacionAsesorHTML(exp);
+}
+
+// Para el asesor, la investigación es un solo check de solo lectura:
+// se completa cuando el administrativo termina sus 5 investigaciones.
+function investigacionAsesorHTML(exp) {
+  const inv = invResumen(exp);
+  let icono, chip, nota;
+  if (inv.completa) {
+    icono = "✅";
+    chip = `<span class="estado estado-completo">Completo</span>`;
+    nota = "El administrativo de compras terminó las investigaciones.";
+  } else if (inv.hechas > 0) {
+    icono = "🕒";
+    chip = `<span class="estado estado-revision">En proceso</span>`;
+    nota = "El administrativo de compras está realizando las investigaciones.";
+  } else {
+    icono = "⬜";
+    chip = `<span class="estado estado-proceso">Pendiente</span>`;
+    nota = "Las realiza el administrativo de compras; no necesitas subir nada aquí.";
+  }
+  return `
+  <div class="doc-item doc-inv">
+    <div class="card-row">
+      <div class="doc-nombre">${icono} 🔎 Investigaciones</div>
+      ${chip}
+    </div>
+    <div class="doc-fecha">${nota}</div>
+  </div>`;
 }
 
 /* ---------------- Subida de archivos ---------------- */
@@ -397,6 +470,7 @@ function subirArchivo(docKey) {
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("input-camara").addEventListener("change", ev => procesarArchivos(ev.target.files));
   document.getElementById("input-archivo").addEventListener("change", ev => procesarArchivos(ev.target.files));
+  document.getElementById("input-inv").addEventListener("change", ev => procesarInvArchivos(ev.target.files));
 });
 
 async function procesarArchivos(fileList) {
@@ -599,6 +673,20 @@ function renderAdmin() {
       const n = d.archivos.length;
       return `${ic} ${c.nombre}${n ? ` <span class="doc-conteo">(${n} archivo${n !== 1 ? "s" : ""})</span>` : ""}`;
     }).join("<br>");
+
+    const disp = invDisponible(exp);
+    const inv = invResumen(exp);
+    const filasInv = INVESTIGACIONES.map(i => {
+      const hecho = exp.investigaciones[i.key].archivos.length > 0;
+      return `${hecho ? "✅" : "⬜"} ${i.nombre}`;
+    }).join("<br>");
+    const invBloque = disp.disponible
+      ? `<div class="inv-titulo">🔎 Investigación ${inv.completa ? `<span class="estado estado-completo">Completa</span>` : `<span class="estado estado-revision">${inv.hechas}/${inv.total}</span>`}</div>
+         <div class="doc-fecha" style="line-height:1.9">${filasInv}</div>
+         <div class="doc-actions"><button class="btn btn-primary" onclick="abrirInvestigacion('${exp.id}')">🔎 Abrir investigación</button></div>`
+      : `<div class="inv-titulo">🔒 Investigación no disponible</div>
+         <div class="doc-fecha">Se desbloquea al aprobar: ${disp.faltan.join(", ")}.</div>`;
+
     return `
     <div class="card" style="cursor:default">
       <div class="card-row">
@@ -613,8 +701,104 @@ function renderAdmin() {
         <span class="progress-label">${r.aprobados}/${CHECKLIST.length}</span>
       </div>
       <div class="doc-fecha" style="margin-top:10px;line-height:1.9">${filas}</div>
+      <div class="inv-bloque">${invBloque}</div>
     </div>`;
   }).join("");
+}
+
+/* ---------------- Investigación (administrativo) ---------------- */
+
+function abrirInvestigacion(expId) {
+  invExpAbierta = expId;
+  renderInvestigacion();
+  document.getElementById("modal-inv").classList.remove("hidden");
+}
+
+function renderInvestigacion() {
+  const exp = expedientes.find(e => e.id === invExpAbierta);
+  if (!exp) return;
+  const inv = invResumen(exp);
+
+  document.getElementById("inv-sub").textContent =
+    `Cliente: ${exp.cliente} · Asesor: ${nombreDe(exp.asesorId)} · ${inv.hechas}/${inv.total} investigaciones`;
+
+  document.getElementById("inv-lista").innerHTML = INVESTIGACIONES.map(i => {
+    const archivos = exp.investigaciones[i.key].archivos;
+    const hecho = archivos.length > 0;
+    const chips = archivos.map((a, j) => `
+      <div class="archivo-chip">
+        <button class="archivo-nombre" onclick="verInvArchivo('${i.key}',${j})">📄 ${esc(a.nombre || "PDF")}</button>
+        <button class="archivo-borrar" title="Quitar PDF" onclick="quitarInvArchivo('${i.key}',${j})">✕</button>
+      </div>`).join("");
+    return `
+    <div class="doc-item" style="box-shadow:none;border:1px solid var(--borde);margin-bottom:10px">
+      <div class="card-row">
+        <div class="doc-nombre">${hecho ? "✅" : "⬜"} ${i.nombre}</div>
+        ${hecho ? `<span class="estado estado-completo">Listo</span>` : `<span class="estado estado-proceso">Pendiente</span>`}
+      </div>
+      ${chips ? `<div class="archivo-lista">${chips}</div>` : ""}
+      <div class="doc-actions">
+        <button class="btn ${hecho ? "" : "btn-primary"}" onclick="subirInvPdf('${i.key}')">📄 Subir PDF</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function subirInvPdf(invKey) {
+  invEnSubida = invKey;
+  const input = document.getElementById("input-inv");
+  input.value = "";
+  input.click();
+}
+
+async function procesarInvArchivos(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length || !invEnSubida || !invExpAbierta) return;
+  const exp = expedientes.find(e => e.id === invExpAbierta);
+  if (!exp) return;
+  const inv = exp.investigaciones[invEnSubida];
+
+  let agregados = 0, grandes = 0, noPdf = 0;
+  for (const file of files) {
+    const esPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    if (!esPdf) { noPdf++; continue; }
+    if (file.size > MAX_PDF_MB * 1024 * 1024) { grandes++; continue; }
+    const data = await leerComoDataURL(file);
+    inv.archivos.push({ tipo: "pdf", data, nombre: file.name, subido: new Date().toISOString() });
+    agregados++;
+  }
+
+  if (agregados > 0 && !guardar()) {
+    inv.archivos.splice(inv.archivos.length - agregados, agregados);
+    guardar();
+  } else if (agregados > 0) {
+    const r = invResumen(exp);
+    toast(r.completa ? "✅ Investigación completa: las 5 quedaron listas" : `📄 PDF guardado (${r.hechas}/${r.total} investigaciones)`);
+  }
+  if (grandes > 0) toast(`⚠️ ${grandes} PDF supera ${MAX_PDF_MB} MB y no se subió.`);
+  if (noPdf > 0) toast("⚠️ Solo se aceptan archivos PDF en la investigación.");
+
+  invEnSubida = null;
+  renderInvestigacion();
+  renderAdmin();
+  document.getElementById("modal-inv").classList.remove("hidden");
+}
+
+function verInvArchivo(invKey, idx) {
+  const exp = expedientes.find(e => e.id === invExpAbierta);
+  if (!exp) return;
+  const a = exp.investigaciones[invKey].archivos[idx];
+  if (a) abrirPdf(a.data);
+}
+
+function quitarInvArchivo(invKey, idx) {
+  const exp = expedientes.find(e => e.id === invExpAbierta);
+  if (!exp) return;
+  exp.investigaciones[invKey].archivos.splice(idx, 1);
+  guardar();
+  renderInvestigacion();
+  renderAdmin();
+  document.getElementById("modal-inv").classList.remove("hidden");
 }
 
 /* ---------------- Configuración (solo Administración Central) ---------------- */

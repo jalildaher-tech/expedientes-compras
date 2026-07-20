@@ -279,6 +279,24 @@ body {
 }
 .doc-conteo { color: var(--texto-suave); font-size: 12px; }
 
+/* ---------- Investigación ---------- */
+.inv-bloque {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px dashed var(--borde);
+  border-radius: 10px;
+}
+.inv-titulo {
+  font-size: 14.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.doc-inv { border-left: 4px solid var(--azul-claro); }
+
 /* ---------- Configuración ---------- */
 .config-usuarios { margin-top: 12px; }
 .config-usuario {

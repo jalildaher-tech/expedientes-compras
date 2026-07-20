@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#1a3a5c">
 <title>Expedientes de Compras · DSN</title>
-<link rel="stylesheet" href="styles.css?v=3">
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
 
@@ -95,6 +95,19 @@
   <div class="list" id="admin-lista"></div>
 </section>
 
+<!-- ==================== MODAL: INVESTIGACIÓN (ADMINISTRATIVO) ==================== -->
+<div id="modal-inv" class="modal-overlay hidden">
+  <div class="modal modal-wide">
+    <h3>🔎 Investigación</h3>
+    <p class="rev-sub" id="inv-sub"></p>
+    <div id="inv-lista"></div>
+    <div class="modal-actions">
+      <button class="btn btn-block" onclick="cerrarModal('modal-inv')">Cerrar</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="input-inv" accept="application/pdf,.pdf" multiple class="hidden">
+
 <!-- ==================== MODAL: NUEVO USUARIO ==================== -->
 <div id="modal-usuario" class="modal-overlay hidden">
   <div class="modal">
@@ -178,6 +191,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

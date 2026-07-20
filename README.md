@@ -4,7 +4,7 @@ Aplicación web para el departamento de compras: los asesores de venta suben con
 cámara de su celular los documentos de cada expediente de cliente, y Administración
 Central los revisa y marca si son legibles y completos.
 
-## Checklist por expediente
+## Checklist por expediente (sube el asesor)
 
 1. Consecutivo de facturas
 2. Tarjeta de circulación
@@ -12,14 +12,33 @@ Central los revisa y marca si son legibles y completos.
 4. INE del cliente
 5. Constancia de situación fiscal
 6. Baja de placas
+7. Kilometraje en odómetro
+
+## Investigación (la realiza el administrativo de compras)
+
+Se desbloquea cuando están aprobados: consecutivo de facturas, tarjeta de
+circulación **o** consecutivo de refrendos, kilometraje en odómetro e INE.
+Avanza en paralelo al resto de la documentación. El administrativo sube un PDF
+por cada resultado y el check se marca automáticamente:
+
+- REPUVE
+- Adeudos vehiculares
+- RUG
+- Transunion
+- RAPI
+
+El asesor ve un solo check "Investigaciones", que se completa cuando las 5
+investigaciones están listas. El expediente queda **Completo** cuando los 7
+documentos están aprobados y la investigación está terminada.
 
 ## Cuentas de demostración
 
-| Usuario   | PIN  | Rol                    |
-|-----------|------|------------------------|
-| `asesor1` | 1111 | Asesor (Carlos)        |
-| `asesor2` | 2222 | Asesora (María)        |
-| `admin`   | 9999 | Administración Central |
+| Usuario    | PIN  | Rol                               |
+|------------|------|-----------------------------------|
+| `asesor1`  | 1111 | Asesor (Carlos)                   |
+| `asesor2`  | 2222 | Asesora (María)                   |
+| `compras1` | 3333 | Administrativa de compras (Laura) |
+| `admin`    | 9999 | Administración Central            |
 
 ## Estatus de cada documento
 
