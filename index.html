@@ -72,6 +72,7 @@
   <div class="list" id="lista-documentos"></div>
 
   <input type="file" id="input-camara" accept="image/*" capture="environment" class="hidden">
+  <input type="file" id="input-archivo" accept="image/*,application/pdf,.pdf" multiple class="hidden">
 </section>
 
 <!-- ==================== PANTALLA: ADMIN ==================== -->
@@ -117,7 +118,7 @@
   <div class="modal modal-wide">
     <h3 id="rev-titulo"></h3>
     <p class="rev-sub" id="rev-sub"></p>
-    <div class="rev-img-wrap"><img id="rev-img" alt="Documento a revisar"></div>
+    <div id="rev-archivos"></div>
     <div class="field">
       <label for="rev-motivo">Motivo de rechazo (solo si rechazas)</label>
       <input type="text" id="rev-motivo" placeholder="ej. Foto borrosa, falta la última hoja…">
@@ -135,6 +136,7 @@
   <div class="modal modal-wide">
     <h3 id="foto-titulo"></h3>
     <div class="rev-img-wrap"><img id="foto-img" alt="Documento"></div>
+    <p class="rev-sub" id="foto-nombre"></p>
     <div class="modal-actions">
       <button class="btn btn-block" onclick="cerrarModal('modal-foto')">Cerrar</button>
     </div>
