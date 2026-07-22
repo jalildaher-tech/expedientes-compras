@@ -30,19 +30,23 @@ const INVESTIGACIONES = [
 ];
 
 const USUARIOS_BASE = [
-  { id: "asesor1",  nombre: "Carlos Ramírez",         usuario: "asesor1",  pin: "1111", rol: "asesor" },
-  { id: "asesor2",  nombre: "María Fernanda Ruiz",    usuario: "asesor2",  pin: "2222", rol: "asesor" },
-  { id: "compras1", nombre: "Laura Gómez",            usuario: "compras1", pin: "3333", rol: "administrativo", asignados: ["asesor1"] },
-  { id: "admin",    nombre: "Administración Central", usuario: "admin",    pin: "9999", rol: "admin" },
+  { id: "asesor1",   nombre: "Carlos Ramírez",         usuario: "asesor1",   pin: "1111", rol: "asesor" },
+  { id: "asesor2",   nombre: "María Fernanda Ruiz",    usuario: "asesor2",   pin: "2222", rol: "asesor" },
+  { id: "compras1",  nombre: "Laura Gómez",            usuario: "compras1",  pin: "3333", rol: "administrativo", asignados: ["asesor1"] },
+  { id: "valuador1", nombre: "Miguel Torres",          usuario: "valuador1", pin: "5555", rol: "valuador" },
+  { id: "admin",     nombre: "Administración Central", usuario: "admin",     pin: "9999", rol: "admin" },
 ];
 
 const STORE_KEY = "expedientes_compras_v1";
 const USERS_KEY = "expedientes_usuarios_v1";
+const AGENCIAS_KEY = "expedientes_agencias_v1";
 const SESSION_KEY = "expedientes_sesion_v1";
 const MAX_PDF_MB = 2.5; // límite por PDF para no llenar localStorage
 
 let expedientes = [];
 let usuarios = [];
+let agencias = [];
+let tarifas = { hojalateria: null, pintura: null }; // costos por pieza (⚙️ Configuración)
 let sesion = null;
 let expedienteAbierto = null;
 let docEnSubida = null;     // key del documento al que se agregan archivos
@@ -64,13 +68,34 @@ function cargar() {
   migrarUsuarios();
 
   try {
+    agencias = JSON.parse(localStorage.getItem(AGENCIAS_KEY)) || [];
+  } catch (e) { agencias = []; }
+  if (agencias.length === 0) {
+    agencias = [{ id: "ag-demo-1", nombre: "Agencia Centro (demo)", representanteId: "asesor1" }];
+    guardarAgencias();
+  }
+
+  try {
     expedientes = JSON.parse(localStorage.getItem(STORE_KEY)) || [];
   } catch (e) { expedientes = []; }
   migrar();
   if (expedientes.length === 0) sembrarDemo();
 
+  try {
+    const t = JSON.parse(localStorage.getItem("expedientes_tarifas_v1"));
+    if (t) tarifas = { hojalateria: t.hojalateria ?? null, pintura: t.pintura ?? null };
+  } catch (e) { /* se queda el valor por defecto */ }
+
   const s = localStorage.getItem(SESSION_KEY);
   if (s) sesion = usuarios.find(u => u.id === s) || null;
+}
+
+function setTarifa(campo, valor) {
+  const n = parseFloat(valor);
+  tarifas[campo] = isNaN(n) ? null : n;
+  try { localStorage.setItem("expedientes_tarifas_v1", JSON.stringify(tarifas)); } catch (e) {}
+  toast(`Costo de ${campo === "hojalateria" ? "hojalatería" : "pintura"} por pieza: ${tarifas[campo] === null ? "sin configurar" : dinero(tarifas[campo])}.`);
+  renderAdmin();
 }
 
 // Asegura que los usuarios base existan y que los administrativos
@@ -106,8 +131,26 @@ function migrar() {
     INVESTIGACIONES.forEach(i => {
       if (!exp.investigaciones[i.key]) { exp.investigaciones[i.key] = { archivos: [] }; cambio = true; }
     });
+    if (!exp.oferta) { exp.oferta = ofertaVacia(); cambio = true; }
+    if (!exp.entrega) { exp.entrega = { hecho: false, fecha: null }; cambio = true; }
+    if (!exp.firma) { exp.firma = { hecho: false, fecha: null }; cambio = true; }
+    if (!exp.pago) { exp.pago = { hecho: false, fecha: null }; cambio = true; }
+    if (exp.agenciaId === undefined) { exp.agenciaId = null; cambio = true; }
   });
   if (cambio) guardar();
+}
+
+function ofertaVacia() {
+  return {
+    inicial: null,      // la captura el representante de compras
+    diagnostico: null,  // futuro: monto del diagnóstico del técnico valuador
+    bono: null,         // positivo = bono, negativo = descuento
+    correoCliente: "",
+    estado: "pendiente", // pendiente | enviada | aceptada
+    aceptadaPor: null,   // "cliente" | "representante"
+    fechaAceptada: null,
+    enviadaFecha: null,
+  };
 }
 
 function invVacia() {
@@ -154,6 +197,31 @@ function guardarUsuarios() {
   }
 }
 
+function guardarAgencias() {
+  try {
+    localStorage.setItem(AGENCIAS_KEY, JSON.stringify(agencias));
+    return true;
+  } catch (e) {
+    toast("⚠️ No se pudo guardar la configuración de agencias.");
+    return false;
+  }
+}
+
+/* Agencia y representante de compras de un expediente. Si el expediente
+   no tiene agencia asignada, el representante es el asesor que lo creó. */
+function agenciaDe(exp) {
+  return agencias.find(a => a.id === exp.agenciaId) || null;
+}
+
+function representanteDe(exp) {
+  const ag = agenciaDe(exp);
+  return (ag && ag.representanteId) ? ag.representanteId : exp.asesorId;
+}
+
+function esRepresentante(exp) {
+  return !!sesion && sesion.id === representanteDe(exp);
+}
+
 function docVacio() {
   return { estado: "pendiente", archivos: [], revisado: null, motivo: null };
 }
@@ -169,11 +237,15 @@ function sembrarDemo() {
   const exp = {
     id: "exp-demo-1",
     asesorId: "asesor1",
+    agenciaId: "ag-demo-1",
     cliente: "Juan Pérez López (demo)",
     unidad: "Nissan Versa 2021",
     creado: hoy,
     docs: crearDocs(),
     investigaciones: invVacia(),
+    oferta: ofertaVacia(),
+    entrega: { hecho: false, fecha: null },
+    pago: { hecho: false, fecha: null },
   };
   exp.docs.ine = { estado: "aprobado", archivos: [{ tipo: "imagen", data: imagenDemo(), nombre: "Foto", subido: hoy }], revisado: hoy, motivo: null };
   exp.docs.tarjeta = { estado: "revision", archivos: [{ tipo: "imagen", data: imagenDemo(), nombre: "Foto", subido: hoy }], revisado: null, motivo: null };
@@ -301,8 +373,47 @@ function mostrar(idVista) {
 function render() {
   if (!sesion) { mostrar("view-login"); return; }
   if (sesion.rol === "admin" || sesion.rol === "administrativo") { renderAdmin(); return; }
+  if (sesion.rol === "valuador") { renderValuador(); return; }
   if (expedienteAbierto) { renderExpediente(); return; }
   renderAsesor();
+}
+
+/* ---------------- Vista: técnico valuador (paso en preparación) ---------------- */
+
+function renderValuador() {
+  mostrar("view-asesor");
+  document.querySelector(".fab").style.display = "none";
+  document.getElementById("asesor-nombre").textContent = sesion.nombre + " · Técnico valuador";
+
+  let terminados = 0, enProceso = 0;
+  expedientes.forEach(e => {
+    if (e.diagnostico && e.diagnostico.estado === "terminado") terminados++;
+    else if (e.diagnostico && e.diagnostico.estado === "proceso") enProceso++;
+  });
+  document.getElementById("asesor-stats").innerHTML = `
+    <div class="stat"><b>${expedientes.length}</b><span>Expedientes</span></div>
+    <div class="stat"><b style="color:var(--ambar)">${enProceso}</b><span>En proceso</span></div>
+    <div class="stat"><b style="color:var(--verde)">${terminados}</b><span>Terminados</span></div>`;
+
+  const cont = document.getElementById("lista-expedientes");
+  if (expedientes.length === 0) {
+    cont.innerHTML = `<div class="empty"><span class="big">🔧</span>No hay expedientes registrados.</div>`;
+    return;
+  }
+  cont.innerHTML = expedientes.map(e => `
+    <div class="card" onclick="abrirExpediente('${e.id}')">
+      <div class="card-row">
+        <div>
+          <div class="card-title">${esc(e.cliente)}</div>
+          <div class="card-sub">${esc(e.unidad || "")} · Asesor: ${esc(nombreDe(e.asesorId))}${e.diagnostico && e.diagnostico.noAvaluo ? " · Avalúo " + esc(e.diagnostico.noAvaluo) : ""}</div>
+        </div>
+        ${diagChip(e)}
+      </div>
+      ${e.diagnostico && e.diagnostico.estado === "terminado"
+        ? `<div class="doc-fecha" style="margin-top:8px">Total de valuación: <b>${dinero(diagTotalValuacion(e))}</b> · ${diagFotosCompletas(e)}/4 fotos</div>`
+        : `<div class="doc-fecha" style="margin-top:8px">Toca para llenar el formato de avalúo.</div>`}
+      ${e.diagnostico && clonacionFalla(e) ? `<div class="doc-motivo" style="margin-top:6px">⚠️ NO pasó prueba de clonación</div>` : ""}
+    </div>`).join("");
 }
 
 /* ---------------- Estados derivados ---------------- */
@@ -343,20 +454,69 @@ function nombreDe(id) {
   return u ? u.nombre : "—";
 }
 
-// Expedientes que el usuario en sesión tiene derecho a ver
+/* ---------------- Fases del proceso ----------------
+   Fase 1: aceptación de oferta final.
+   Fase 2: entrega de expediente y auto (documentos + investigación + entrega).
+   Fase 3: firma de contratos (la acepta Administración Central).
+   Fase 4: proceso de pago (lo confirma Administración Central). */
+
+function dinero(n) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  return "$" + Number(n).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Oferta final = inicial − diagnóstico mecánico + bono (o − descuento)
+function ofertaFinalDe(exp) {
+  const o = exp.oferta;
+  if (o.inicial === null || o.inicial === undefined) return null;
+  return Number(o.inicial) - Number(o.diagnostico || 0) + Number(o.bono || 0);
+}
+
+function fase1Completa(exp) { return exp.oferta.estado === "aceptada"; }
+
+function fase2Completa(exp) {
+  const r = resumenExpediente(exp);
+  return r.aprobados === CHECKLIST.length && invResumen(exp).completa && exp.entrega.hecho;
+}
+
+function fase3Completa(exp) { return exp.firma.hecho; }
+
+function fase4Completa(exp) { return exp.pago.hecho; }
+
+function faseChip(exp) {
+  if (fase4Completa(exp)) return `<span class="estado estado-completo">✓ Proceso concluido</span>`;
+  if (fase3Completa(exp)) return `<span class="estado estado-revision">Fase 4: Pago</span>`;
+  if (fase2Completa(exp)) return `<span class="estado estado-revision">Fase 3: Firma de contratos</span>`;
+  if (fase1Completa(exp)) return `<span class="estado estado-revision">Fase 2: Expediente y entrega</span>`;
+  return `<span class="estado estado-proceso">Fase 1: Oferta</span>`;
+}
+
+function textoEstadoOferta(exp) {
+  const o = exp.oferta;
+  if (o.estado === "aceptada") {
+    return `✅ Aceptada por el representante de compras (${nombreDe(representanteDe(exp))}) el ${fechaCorta(o.fechaAceptada)}`;
+  }
+  if (o.estado === "enviada") return `📧 Enviada al cliente el ${fechaCorta(o.enviadaFecha)} — pendiente de aceptación del representante`;
+  return "Sin aceptar";
+}
+
+// Expedientes que el usuario en sesión tiene derecho a ver.
+// Un asesor ve los suyos y también los de las agencias donde es
+// representante de compras (para capturar y autorizar ofertas).
 function expedientesVisibles() {
   if (sesion.rol === "admin") return expedientes;
   if (sesion.rol === "administrativo") {
     const ids = sesion.asignados || [];
     return expedientes.filter(e => ids.includes(e.asesorId));
   }
-  return expedientes.filter(e => e.asesorId === sesion.id);
+  return expedientes.filter(e => e.asesorId === sesion.id || representanteDe(e) === sesion.id);
 }
 
 /* ---------------- Vista: asesor ---------------- */
 
 function renderAsesor() {
   mostrar("view-asesor");
+  document.querySelector(".fab").style.display = "";
   document.getElementById("asesor-nombre").textContent = sesion.nombre;
 
   const mios = expedientesVisibles();
@@ -387,7 +547,7 @@ function renderAsesor() {
           <div class="card-title">${esc(e.cliente)}</div>
           <div class="card-sub">${esc(e.unidad || "")}${e.unidad ? " · " : ""}Creado ${fechaCorta(e.creado)}</div>
         </div>
-        <span class="estado ${r.clase}">${r.etiqueta}</span>
+        ${faseChip(e)}
       </div>
       <div class="progress-wrap">
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
@@ -402,6 +562,10 @@ function renderAsesor() {
 function abrirNuevoExpediente() {
   document.getElementById("nuevo-cliente").value = "";
   document.getElementById("nuevo-unidad").value = "";
+  const sel = document.getElementById("nuevo-agencia");
+  sel.innerHTML = agencias.map(a =>
+    `<option value="${a.id}">${esc(a.nombre)} — Rep.: ${esc(nombreDe(a.representanteId) || "sin asignar")}</option>`).join("") +
+    `<option value="">(Sin agencia)</option>`;
   document.getElementById("nuevo-error").classList.add("hidden");
   document.getElementById("modal-nuevo").classList.remove("hidden");
 }
@@ -415,11 +579,15 @@ function crearExpediente() {
   const exp = {
     id: "exp-" + Date.now(),
     asesorId: sesion.id,
+    agenciaId: document.getElementById("nuevo-agencia").value || null,
     cliente,
     unidad: document.getElementById("nuevo-unidad").value.trim(),
     creado: new Date().toISOString(),
     docs: crearDocs(),
     investigaciones: invVacia(),
+    oferta: ofertaVacia(),
+    entrega: { hecho: false, fecha: null },
+    pago: { hecho: false, fecha: null },
   };
   expedientes.unshift(exp);
   guardar();
@@ -442,11 +610,15 @@ function volverDeExpediente() {
 function renderExpediente() {
   const exp = expedientes.find(e => e.id === expedienteAbierto);
   if (!exp) { expedienteAbierto = null; render(); return; }
+  if (sesion.rol === "valuador") { renderDiagnostico(exp); return; }
   mostrar("view-expediente");
 
   document.getElementById("exp-cliente").textContent = exp.cliente;
+  const agExp = agenciaDe(exp);
   document.getElementById("exp-meta").textContent =
-    (exp.unidad ? exp.unidad + " · " : "") + "Creado " + fechaCorta(exp.creado);
+    (exp.unidad ? exp.unidad + " · " : "") +
+    (agExp ? agExp.nombre + " · " : "") +
+    "Creado " + fechaCorta(exp.creado);
 
   const r = resumenExpediente(exp);
   const pct = Math.round(r.aprobados / CHECKLIST.length * 100);
@@ -454,7 +626,9 @@ function renderExpediente() {
   document.getElementById("exp-progress-label").textContent = `${r.aprobados}/${CHECKLIST.length} aprobados`;
 
   const cont = document.getElementById("lista-documentos");
-  cont.innerHTML = CHECKLIST.map((c, i) => {
+  cont.innerHTML = ofertaHTML(exp) +
+    `<h3 class="config-seccion">2️⃣ Entrega de expediente y auto</h3>` +
+    CHECKLIST.map((c, i) => {
     const d = exp.docs[c.key];
     let icono, chip;
     switch (d.estado) {
@@ -489,7 +663,192 @@ function renderExpediente() {
         <button class="btn" onclick="subirArchivo('${c.key}')">📎 Subir PDF o imagen</button>
       </div>` : ""}
     </div>`;
-  }).join("") + investigacionAsesorHTML(exp);
+  }).join("") + investigacionAsesorHTML(exp) + entregaHTML(exp) + contratosAsesorHTML(exp) + firmaAsesorHTML(exp) + pagoAsesorHTML(exp);
+}
+
+// Fase 3 (vista del asesor / representante): solo lectura
+function firmaAsesorHTML(exp) {
+  const ok = exp.firma.hecho;
+  return `
+  <h3 class="config-seccion">3️⃣ Firma de contratos</h3>
+  <div class="doc-item ${ok ? "" : "doc-inv"}">
+    <div class="card-row">
+      <div class="doc-nombre">${ok ? "✅" : "⬜"} ✍️ Firma de contratos</div>
+      ${ok ? `<span class="estado estado-completo">Aceptada</span>` : `<span class="estado estado-proceso">Pendiente</span>`}
+    </div>
+    <div class="doc-fecha">${ok
+      ? `Firma aceptada el ${fechaCorta(exp.firma.fecha)} por Administración Central.`
+      : "Descarga los contratos liberados, recaba las firmas del cliente y Administración Central aceptará la firma."}</div>
+  </div>`;
+}
+
+/* ---------------- Fase 1: oferta (vista del representante) ---------------- */
+
+function ofertaHTML(exp) {
+  const o = exp.oferta;
+  const final = ofertaFinalDe(exp);
+  const aceptada = o.estado === "aceptada";
+  const soyRep = esRepresentante(exp);
+  const puedeEditar = soyRep && !aceptada;
+  const ag = agenciaDe(exp);
+  const chip = aceptada
+    ? `<span class="estado estado-completo">Aceptada</span>`
+    : o.estado === "enviada"
+      ? `<span class="estado estado-revision">Enviada al cliente</span>`
+      : `<span class="estado estado-proceso">Pendiente</span>`;
+
+  return `
+  <h3 class="config-seccion">1️⃣ Aceptación de oferta final</h3>
+  <div class="doc-item doc-inv">
+    <div class="card-row">
+      <div class="doc-nombre">💰 Oferta</div>
+      ${chip}
+    </div>
+    <div class="doc-fecha">${ag ? `Agencia: ${esc(ag.nombre)} · ` : ""}Representante de compras: <b>${esc(nombreDe(representanteDe(exp)))}</b> — solo él captura y autoriza la oferta.</div>
+    <div class="oferta-grid">
+      <label>Oferta inicial (MXN)
+        <input type="number" inputmode="decimal" value="${o.inicial ?? ""}" placeholder="ej. 180000"
+          ${puedeEditar ? "" : "disabled"} onchange="setOferta('${exp.id}','inicial',this.value)">
+      </label>
+      <label>Diagnóstico mecánico (−)
+        <input type="text" value="${o.diagnostico === null ? "" : o.diagnostico}" placeholder="Pendiente: técnico valuador" disabled>
+      </label>
+      <label>Bono (+) o descuento (−)
+        <input type="number" inputmode="decimal" value="${o.bono ?? ""}" placeholder="ej. 5000 o -3000"
+          ${puedeEditar ? "" : "disabled"} onchange="setOferta('${exp.id}','bono',this.value)">
+      </label>
+      <div class="oferta-final">Oferta final: <b>${dinero(final)}</b></div>
+    </div>
+    ${o.diagnostico === null ? `<div class="doc-fecha">🔧 El diagnóstico mecánico lo capturará el técnico valuador (paso en preparación); por ahora la oferta final se calcula sin él.</div>` : ""}
+    ${!puedeEditar ? "" : `
+    <div class="field" style="margin-top:10px">
+      <label>Correo del cliente (para enviarle la oferta informativa)</label>
+      <input type="email" value="${esc(o.correoCliente || "")}" placeholder="cliente@correo.com"
+        onchange="setOferta('${exp.id}','correoCliente',this.value)">
+    </div>
+    <div class="doc-actions">
+      <button class="btn" onclick="enviarOfertaCorreo('${exp.id}')" ${final === null ? "disabled" : ""}>📧 Enviar al cliente por correo</button>
+      <button class="btn btn-success" onclick="marcarAceptada('${exp.id}')" ${final === null ? "disabled" : ""}>✍️ Aceptar oferta final</button>
+    </div>`}
+    <div class="doc-fecha" style="margin-top:8px">${textoEstadoOferta(exp)}</div>
+  </div>`;
+}
+
+function setOferta(expId, campo, valor) {
+  const exp = expedientes.find(e => e.id === expId);
+  if (!exp || exp.oferta.estado === "aceptada") return;
+  if (!esRepresentante(exp)) { toast("Solo el representante de compras de la agencia puede capturar la oferta."); return; }
+  if (campo === "correoCliente") {
+    exp.oferta.correoCliente = valor.trim();
+  } else {
+    const n = parseFloat(valor);
+    exp.oferta[campo] = isNaN(n) ? null : n;
+  }
+  guardar();
+  renderExpediente();
+}
+
+function enviarOfertaCorreo(expId) {
+  const exp = expedientes.find(e => e.id === expId);
+  if (!exp) return;
+  if (!esRepresentante(exp)) { toast("Solo el representante de compras puede enviar la oferta."); return; }
+  const final = ofertaFinalDe(exp);
+  if (final === null) { toast("Captura primero la oferta inicial."); return; }
+  const correo = (exp.oferta.correoCliente || "").trim();
+  if (!correo || !correo.includes("@")) { toast("Captura el correo del cliente."); return; }
+
+  const asunto = encodeURIComponent(`Oferta de compra — ${exp.unidad || "su vehículo"}`);
+  const cuerpo = encodeURIComponent(
+`Estimado(a) ${exp.cliente}:
+
+Le compartimos la oferta por su vehículo ${exp.unidad || ""}:
+
+  Oferta inicial:        ${dinero(exp.oferta.inicial)}
+  Diagnóstico mecánico:  ${exp.oferta.diagnostico === null ? "por realizar" : "-" + dinero(exp.oferta.diagnostico)}
+  Bono / descuento:      ${dinero(exp.oferta.bono || 0)}
+  ------------------------------------
+  OFERTA FINAL:          ${dinero(final)}
+
+Si tiene alguna duda sobre esta oferta, responda este correo o comuníquese con su representante.
+
+Atentamente,
+${nombreDe(exp.asesorId)}
+Departamento de Compras`);
+
+  window.location.href = `mailto:${correo}?subject=${asunto}&body=${cuerpo}`;
+  exp.oferta.estado = "enviada";
+  exp.oferta.enviadaFecha = new Date().toISOString();
+  guardar();
+  renderExpediente();
+  toast("📧 Se abrió tu correo con la oferta lista para enviar. La aceptación la registras tú con «Aceptar oferta final».");
+}
+
+// La oferta final la acepta únicamente el representante de compras
+// asignado a la agencia del expediente.
+function marcarAceptada(expId) {
+  const exp = expedientes.find(e => e.id === expId);
+  if (!exp) return;
+  if (!esRepresentante(exp)) { toast("Solo el representante de compras de la agencia puede aceptar la oferta final."); return; }
+  if (ofertaFinalDe(exp) === null) { toast("Captura primero la oferta inicial."); return; }
+  if (!confirm(`¿Aceptas la oferta final de ${dinero(ofertaFinalDe(exp))} como representante de compras?`)) return;
+  exp.oferta.estado = "aceptada";
+  exp.oferta.aceptadaPor = "representante";
+  exp.oferta.fechaAceptada = new Date().toISOString();
+  guardar();
+  renderExpediente();
+  toast("✅ Oferta final aceptada. Inicia la Fase 2: entrega de expediente y auto.");
+}
+
+/* ---------------- Fase 2: entrega del auto ---------------- */
+
+function entregaHTML(exp) {
+  const ok = exp.entrega.hecho;
+  const soyRep = esRepresentante(exp);
+  const puedeMarcar = fase1Completa(exp) && soyRep;
+  return `
+  <div class="doc-item">
+    <div class="card-row">
+      <div class="doc-nombre">${ok ? "✅" : "⬜"} 🚗 Entrega del auto</div>
+      ${ok ? `<span class="estado estado-completo">Entregado</span>` : `<span class="estado estado-proceso">Pendiente</span>`}
+    </div>
+    ${ok ? `<div class="doc-fecha">Entregado el ${fechaCorta(exp.entrega.fecha)} — lo registró el representante de compras.</div>` : ""}
+    ${!ok && !fase1Completa(exp) ? `<div class="doc-fecha">🔒 Se habilita cuando la oferta final esté aceptada (Fase 1).</div>` : ""}
+    ${!ok && fase1Completa(exp) && !soyRep ? `<div class="doc-fecha">Lo registra el representante de compras: ${esc(nombreDe(representanteDe(exp)))}.</div>` : ""}
+    <div class="doc-actions">
+      ${!ok && puedeMarcar ? `<button class="btn btn-primary" onclick="marcarEntrega('${exp.id}', true)">✅ Marcar auto entregado</button>` : ""}
+      ${ok && !exp.pago.hecho && soyRep ? `<button class="btn" onclick="marcarEntrega('${exp.id}', false)">Desmarcar</button>` : ""}
+    </div>
+  </div>`;
+}
+
+function marcarEntrega(expId, valor) {
+  const exp = expedientes.find(e => e.id === expId);
+  if (!exp) return;
+  if (!esRepresentante(exp)) { toast("Solo el representante de compras registra la entrega del auto."); return; }
+  if (valor && !fase1Completa(exp)) { toast("Primero debe aceptarse la oferta final."); return; }
+  if (!valor && exp.pago.hecho) { toast("No se puede desmarcar: el pago ya fue concluido."); return; }
+  exp.entrega.hecho = valor;
+  exp.entrega.fecha = valor ? new Date().toISOString() : null;
+  guardar();
+  renderExpediente();
+  toast(valor ? "🚗 Entrega del auto registrada." : "Entrega desmarcada.");
+}
+
+/* ---------------- Fase 3: pago (vista del representante) ---------------- */
+
+function pagoAsesorHTML(exp) {
+  const ok = exp.pago.hecho;
+  return `
+  <h3 class="config-seccion">4️⃣ Proceso de pago</h3>
+  <div class="doc-item ${ok ? "" : "doc-inv"}">
+    <div class="card-row">
+      <div class="doc-nombre">${ok ? "✅" : "⬜"} 💵 Pago al cliente</div>
+      ${ok ? `<span class="estado estado-completo">Concluido</span>` : `<span class="estado estado-proceso">Pendiente</span>`}
+    </div>
+    <div class="doc-fecha">${ok
+      ? `Pago concluido el ${fechaCorta(exp.pago.fecha)} — confirmado por Administración Central.`
+      : "Lo confirma Administración Central cuando el pago quede concluido."}</div>
+  </div>`;
 }
 
 // Para el asesor, la investigación es un solo check de solo lectura:
@@ -774,6 +1133,7 @@ function renderAdmin() {
         <div>
           <div class="card-title">${esc(exp.cliente)}</div>
           <div class="card-sub">Asesor: ${esc(nombreDe(exp.asesorId))} · ${esc(exp.unidad || "")}</div>
+          <div class="card-sub">${agenciaDe(exp) ? esc(agenciaDe(exp).nombre) + " · " : ""}Rep. de compras: ${esc(nombreDe(representanteDe(exp)))}</div>
         </div>
         <span class="estado ${r.clase}">${r.etiqueta}</span>
       </div>
@@ -782,10 +1142,68 @@ function renderAdmin() {
         <span class="progress-label">${r.aprobados}/${CHECKLIST.length}</span>
       </div>
       <div class="doc-fecha" style="margin-top:10px;line-height:1.9">${filas}</div>
+      ${fasesAdminHTML(exp)}
       <div class="inv-bloque">${invBloque}</div>
       ${guardadoBloque}
     </div>`;
   }).join("");
+}
+
+// Resumen de las 4 fases del proceso en la tarjeta del expediente
+// (vista de administración) + firma y pago (solo Administración Central)
+function fasesAdminHTML(exp) {
+  const esCentral = sesion.rol === "admin";
+  const final = ofertaFinalDe(exp);
+  const f1 = fase1Completa(exp), f2 = fase2Completa(exp), f3 = fase3Completa(exp), f4 = fase4Completa(exp);
+
+  const firmaAccion = !f3 && esCentral
+    ? (f2
+      ? `<div class="doc-actions"><button class="btn btn-success" onclick="confirmarFirma('${exp.id}')">✍️ Aceptar firma de contratos</button></div>`
+      : `<div class="doc-fecha">🔒 La firma se habilita al completar la Fase 2 (documentos, investigación y entrega del auto).</div>`)
+    : "";
+  const pagoAccion = f3 && !f4 && esCentral
+    ? `<div class="doc-actions"><button class="btn btn-success" onclick="confirmarPago('${exp.id}')">💵 Confirmar pago concluido</button></div>`
+    : "";
+
+  return `
+  <div class="inv-bloque">
+    <div class="inv-titulo">Proceso ${faseChip(exp)}</div>
+    <div class="doc-fecha" style="line-height:1.9">
+      ${f1 ? "✅" : "⬜"} 1️⃣ Oferta final: ${final !== null ? `<b>${dinero(final)}</b> · ` : ""}${textoEstadoOferta(exp)}<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;🔧 Diagnóstico mecánico: ${exp.diagnostico && exp.diagnostico.estado === "terminado" ? `terminado (−${dinero(diagTotalValuacion(exp))})` : exp.diagnostico && exp.diagnostico.estado === "proceso" ? "en proceso" : "pendiente"}${exp.diagnostico && clonacionFalla(exp) ? ` · <span style="color:var(--rojo);font-weight:700">⚠️ NO pasó prueba de clonación</span>` : ""}<br>
+      ${f2 ? "✅" : "⬜"} 2️⃣ Expediente y entrega del auto ${exp.entrega.hecho ? `(auto entregado ${fechaCorta(exp.entrega.fecha)})` : "(auto sin entregar)"}<br>
+      ${f3 ? "✅" : "⬜"} 3️⃣ Firma de contratos ${exp.firma.hecho ? `aceptada el ${fechaCorta(exp.firma.fecha)}` : "pendiente"}<br>
+      ${f4 ? "✅" : "⬜"} 4️⃣ Pago ${exp.pago.hecho ? `concluido el ${fechaCorta(exp.pago.fecha)}` : "pendiente"}
+    </div>
+    ${firmaAccion}
+    ${pagoAccion}
+  </div>
+  ${contratosAdminHTML(exp)}`;
+}
+
+// La firma de contratos la acepta únicamente Administración Central
+function confirmarFirma(expId) {
+  const exp = expedientes.find(e => e.id === expId);
+  if (!exp || sesion.rol !== "admin") return;
+  if (!fase2Completa(exp)) { toast("La Fase 2 debe estar completa antes de aceptar la firma."); return; }
+  if (!confirm(`¿Confirmas que los contratos del expediente de ${exp.cliente} quedaron firmados?`)) return;
+  exp.firma.hecho = true;
+  exp.firma.fecha = new Date().toISOString();
+  guardar();
+  renderAdmin();
+  toast("✍️ Firma de contratos aceptada. Sigue la Fase 4: pago.");
+}
+
+function confirmarPago(expId) {
+  const exp = expedientes.find(e => e.id === expId);
+  if (!exp || sesion.rol !== "admin") return;
+  if (!fase3Completa(exp)) { toast("Primero debe aceptarse la firma de contratos (Fase 3)."); return; }
+  if (!confirm(`¿Confirmas que el pago de ${dinero(ofertaFinalDe(exp))} a ${exp.cliente} quedó concluido?`)) return;
+  exp.pago.hecho = true;
+  exp.pago.fecha = new Date().toISOString();
+  guardar();
+  renderAdmin();
+  toast("💵 Pago confirmado. Proceso concluido para este expediente.");
 }
 
 /* ---------------- Investigación (administrativo) ---------------- */
@@ -893,7 +1311,9 @@ function renderConfig(cont) {
   const listaUsuarios = usuarios
     .filter(u => u.rol !== "admin")
     .map(u => {
-      const rolTxt = u.rol === "asesor" ? "Asesor de ventas" : "Administrativo de compras";
+      const rolTxt = u.rol === "asesor" ? "Asesor de ventas / Representante de compras"
+        : u.rol === "valuador" ? "Técnico valuador"
+        : "Administrativo de compras";
       const tieneExp = expedientes.some(e => e.asesorId === u.id);
       return `
       <div class="config-usuario">
@@ -950,8 +1370,97 @@ function renderConfig(cont) {
       ${soportaCarpeta ? "" : `<div class="doc-fecha" style="margin-top:6px">⚠️ Este navegador no permite elegir carpeta (funciona en Chrome o Edge de computadora); mientras tanto se usará la descarga en ZIP.</div>`}
     </div>
 
+    <div class="card" style="cursor:default">
+      <div class="card-title">🏢 Agencias / negocios</div>
+      <div class="card-sub" style="margin-top:4px">Cada agencia tiene un representante de compras: es el único que captura y acepta la oferta final y registra la entrega del auto de sus expedientes.</div>
+      <div class="doc-actions" style="margin-top:10px">
+        <input type="text" id="agencia-nueva" class="select" style="flex:1;min-width:180px" placeholder="Nombre de la agencia o negocio">
+        <button class="btn btn-primary" onclick="altaAgencia()">＋ Dar de alta</button>
+      </div>
+      <div class="config-usuarios">
+        ${agencias.length === 0 ? `<p class="card-sub">Sin agencias registradas.</p>` : agencias.map(a => {
+          const enUso = expedientes.some(e => e.agenciaId === a.id);
+          const opciones = usuarios.filter(u => u.rol === "asesor").map(u =>
+            `<option value="${u.id}" ${a.representanteId === u.id ? "selected" : ""}>${esc(u.nombre)}</option>`).join("");
+          return `
+          <div class="config-usuario">
+            <div style="flex:1">
+              <b>${esc(a.nombre)}</b>
+              <div class="card-sub" style="margin-top:6px">
+                Representante de compras:
+                <select class="select" style="padding:8px 10px;font-size:14px;margin-top:4px" onchange="setRepresentanteAgencia('${a.id}', this.value)">
+                  <option value="" ${!a.representanteId ? "selected" : ""}>— Sin asignar —</option>
+                  ${opciones}
+                </select>
+              </div>
+            </div>
+            ${enUso
+              ? `<span class="doc-conteo">con expedientes</span>`
+              : `<button class="archivo-borrar" title="Dar de baja" onclick="bajaAgencia('${a.id}')">✕</button>`}
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+
+    <div class="card" style="cursor:default">
+      <div class="card-title">🔨 Costos de hojalatería y pintura (por pieza)</div>
+      <div class="card-sub" style="margin-top:4px">El técnico valuador marca cada pieza con Hojalatería y/o Pintura; estos son los costos que se registran por pieza.</div>
+      <div class="dato-grid" style="margin-top:10px">
+        <label class="dato-campo">Costo de hojalatería por pieza ($)
+          <input type="number" inputmode="decimal" value="${tarifas.hojalateria ?? ""}" placeholder="ej. 1500"
+            onchange="setTarifa('hojalateria', this.value)">
+        </label>
+        <label class="dato-campo">Costo de pintura por pieza ($)
+          <input type="number" inputmode="decimal" value="${tarifas.pintura ?? ""}" placeholder="ej. 1200"
+            onchange="setTarifa('pintura', this.value)">
+        </label>
+      </div>
+      ${tarifas.hojalateria === null || tarifas.pintura === null ? `<div class="doc-fecha" style="margin-top:8px;color:var(--ambar)">⚠️ Mientras no estén configurados, el valuador no podrá registrar esos trabajos en las piezas.</div>` : ""}
+    </div>
+
     <h3 class="config-seccion">Asignación de asesores por administrativo</h3>
     ${asignaciones}`;
+}
+
+/* ---------------- Agencias (solo Administración Central) ---------------- */
+
+function altaAgencia() {
+  const input = document.getElementById("agencia-nueva");
+  const nombre = input.value.trim();
+  if (!nombre) { toast("Escribe el nombre de la agencia o negocio."); return; }
+  if (agencias.find(a => a.nombre.toLowerCase() === nombre.toLowerCase())) {
+    toast("Ya existe una agencia con ese nombre.");
+    return;
+  }
+  agencias.push({ id: "ag-" + Date.now(), nombre, representanteId: null });
+  guardarAgencias();
+  toast(`🏢 Agencia "${nombre}" dada de alta. Asígnale su representante de compras.`);
+  renderAdmin();
+}
+
+function bajaAgencia(id) {
+  const ag = agencias.find(a => a.id === id);
+  if (!ag) return;
+  if (expedientes.some(e => e.agenciaId === id)) {
+    toast("No se puede dar de baja: tiene expedientes ligados.");
+    return;
+  }
+  if (!confirm(`¿Dar de baja la agencia "${ag.nombre}"?`)) return;
+  agencias = agencias.filter(a => a.id !== id);
+  guardarAgencias();
+  toast(`Agencia "${ag.nombre}" dada de baja.`);
+  renderAdmin();
+}
+
+function setRepresentanteAgencia(agId, usuarioId) {
+  const ag = agencias.find(a => a.id === agId);
+  if (!ag) return;
+  ag.representanteId = usuarioId || null;
+  guardarAgencias();
+  toast(usuarioId
+    ? `Representante de ${ag.nombre}: ${nombreDe(usuarioId)}. El cambio aplica de inmediato.`
+    : `${ag.nombre} quedó sin representante asignado.`);
+  renderAdmin();
 }
 
 function abrirNuevoUsuario() {
@@ -1005,6 +1514,9 @@ function eliminarUsuario(id) {
       x.asignados = x.asignados.filter(a => a !== id);
     }
   });
+  // Y se desliga como representante de compras de las agencias
+  agencias.forEach(a => { if (a.representanteId === id) a.representanteId = null; });
+  guardarAgencias();
   guardarUsuarios();
   toast(`Usuario ${u.nombre} dado de baja.`);
   renderAdmin();
@@ -1246,10 +1758,18 @@ function archivosDeExpediente(exp) {
   const resumen = [
     `Expediente: ${exp.cliente}`,
     `Unidad: ${exp.unidad || "—"}`,
+    `Agencia: ${agenciaDe(exp) ? agenciaDe(exp).nombre : "—"}`,
     `Asesor: ${nombreDe(exp.asesorId)}`,
+    `Representante de compras: ${nombreDe(representanteDe(exp))}`,
     `Número de serie: ${exp.vin || "—"}`,
     `Creado: ${fechaCorta(exp.creado)}`,
     `Guardado: ${fechaCorta(new Date().toISOString())}`,
+    "",
+    "Proceso:",
+    `  1. Oferta final: ${dinero(ofertaFinalDe(exp))} (inicial ${dinero(exp.oferta.inicial)}, diagnóstico ${exp.oferta.diagnostico === null ? "pendiente" : dinero(exp.oferta.diagnostico)}, bono/descuento ${dinero(exp.oferta.bono || 0)}) — ${textoEstadoOferta(exp).replace(/✅|📧/g, "").trim()}`,
+    `  2. Entrega del auto: ${exp.entrega.hecho ? "entregado el " + fechaCorta(exp.entrega.fecha) : "pendiente"}`,
+    `  3. Firma de contratos: ${exp.firma.hecho ? "aceptada el " + fechaCorta(exp.firma.fecha) : "pendiente"}`,
+    `  4. Pago: ${exp.pago.hecho ? "concluido el " + fechaCorta(exp.pago.fecha) : "pendiente"}`,
     "",
     "Documentos:",
     ...CHECKLIST.map((c, i) => `  ${i + 1}. ${c.nombre}: ${exp.docs[c.key].estado} (${exp.docs[c.key].archivos.length} archivo(s))`),

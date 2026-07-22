@@ -4,6 +4,52 @@ Aplicación web para el departamento de compras: los asesores de venta suben con
 cámara de su celular los documentos de cada expediente de cliente, y Administración
 Central los revisa y marca si son legibles y completos.
 
+## Proceso general (3 bloques)
+
+1. **Aceptación de oferta final** — el representante de compras de la agencia
+   (asignado en ⚙️ Configuración) captura la oferta inicial y el bono/descuento;
+   el técnico valuador aportará el diagnóstico mecánico (paso en preparación).
+   Oferta final = inicial − diagnóstico ± bono/descuento. La oferta puede enviarse
+   al cliente por correo (informativa), pero **la aceptación la registra únicamente
+   el representante de compras**.
+2. **Entrega de expediente y auto** — el checklist de 7 documentos, las 5
+   investigaciones y el check "Entrega del auto" (lo marca solo el representante
+   de compras; se habilita al aceptarse la oferta).
+
+## Diagnóstico mecánico (técnico valuador)
+
+Formato de avalúo digital (hoja viajera): datos básicos, mecánica con semáforo
+(bien / atención / mal) y costo por reparación, hojalatería y pintura, recepción
+de unidad (Sí/No) y observaciones. Para **terminar el diagnóstico son
+obligatorias 4 fotografías**: odómetro, número de motor, número de serie y
+holograma del REPUVE. Al terminar, el **total de valuación se descuenta
+automáticamente como "diagnóstico mecánico" en la oferta** (si la oferta aún no
+está aceptada; puede reabrirse mientras no lo esté).
+
+En ⚙️ Configuración, Administración Central da de alta/baja **agencias o negocios**
+y asigna el representante de compras de cada una. Cada expediente se liga a una
+agencia al crearlo; si no tiene agencia, su representante es el asesor que lo creó.
+3. **Firma de contratos** — se liberan los contratos, se recaban firmas y
+   Administración Central acepta la firma (se habilita al completar el bloque 2).
+4. **Proceso de pago** — Administración Central confirma cuando el pago queda
+   concluido (se habilita al aceptarse la firma).
+
+## Contratos (formatos del Excel "Formato de Contrato Prueba")
+
+Descargables/imprimibles por asesores y representantes de compras desde el
+expediente. Liberación:
+
+- **Contrato C-V, Carta responsiva, Carta instrucción y Pagaré**: al concluir
+  los pasos 1 (oferta aceptada) y 2 (expediente completo y auto entregado).
+- **Solicitud de CFDI**: en cuanto se aprueban el INE y la constancia de
+  situación fiscal.
+
+Los datos se llenan automáticamente leyendo los documentos del expediente
+(constancia fiscal, INE, factura, refrendo — por texto digital de PDF u OCR) y
+los campos manuales los captura el administrativo de compras en "📝 Datos de
+contratos". El precio siempre es la oferta final aceptada, con importe en letra
+automático. Los campos faltantes se marcan en rojo en el documento impreso.
+
 ## Checklist por expediente (sube el asesor)
 
 1. Consecutivo de facturas
@@ -33,12 +79,13 @@ documentos están aprobados y la investigación está terminada.
 
 ## Cuentas de demostración
 
-| Usuario    | PIN  | Rol                               |
-|------------|------|-----------------------------------|
-| `asesor1`  | 1111 | Asesor (Carlos)                   |
-| `asesor2`  | 2222 | Asesora (María)                   |
-| `compras1` | 3333 | Administrativa de compras (Laura) |
-| `admin`    | 9999 | Administración Central            |
+| Usuario     | PIN  | Rol                               |
+|-------------|------|-----------------------------------|
+| `asesor1`   | 1111 | Asesor / Representante (Carlos)   |
+| `asesor2`   | 2222 | Asesora / Representante (María)   |
+| `compras1`  | 3333 | Administrativa de compras (Laura) |
+| `valuador1` | 5555 | Técnico valuador (Miguel)         |
+| `admin`     | 9999 | Administración Central            |
 
 ## Estatus de cada documento
 

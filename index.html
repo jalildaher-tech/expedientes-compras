@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#1a3a5c">
 <title>Expedientes de Compras · DSN</title>
-<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 
@@ -32,6 +32,7 @@
       <button class="chip" onclick="quickLogin('asesor1')">👤 Carlos (Asesor)</button>
       <button class="chip" onclick="quickLogin('asesor2')">👤 María (Asesora)</button>
       <button class="chip" onclick="quickLogin('compras1')">🗂️ Laura (Admva. de compras)</button>
+      <button class="chip" onclick="quickLogin('valuador1')">🔧 Miguel (Técnico valuador)</button>
       <button class="chip chip-admin" onclick="quickLogin('admin')">🛡️ Administración Central</button>
     </div>
   </div>
@@ -74,6 +75,7 @@
 
   <input type="file" id="input-camara" accept="image/*" capture="environment" class="hidden">
   <input type="file" id="input-archivo" accept="image/*,application/pdf,.pdf" multiple class="hidden">
+  <input type="file" id="input-diag" accept="image/*" capture="environment" class="hidden">
 </section>
 
 <!-- ==================== PANTALLA: ADMIN ==================== -->
@@ -107,6 +109,11 @@
   </div>
 </div>
 <input type="file" id="input-inv" accept="application/pdf,.pdf" multiple class="hidden">
+
+<!-- ==================== MODAL: DATOS DE CONTRATOS ==================== -->
+<div id="modal-datos" class="modal-overlay hidden">
+  <div class="modal modal-wide" id="modal-datos-inner"></div>
+</div>
 
 <!-- ==================== MODAL: NÚMERO DE SERIE (VIN) ==================== -->
 <div id="modal-vin" class="modal-overlay hidden">
@@ -145,8 +152,9 @@
     <div class="field">
       <label for="user-rol">Rol *</label>
       <select id="user-rol" class="select">
-        <option value="asesor">Asesor de ventas</option>
+        <option value="asesor">Asesor de ventas / Representante de compras</option>
         <option value="administrativo">Administrativo de compras</option>
+        <option value="valuador">Técnico valuador</option>
       </select>
     </div>
     <p id="user-error" class="error hidden"></p>
@@ -168,6 +176,10 @@
     <div class="field">
       <label for="nuevo-unidad">Unidad / referencia (opcional)</label>
       <input type="text" id="nuevo-unidad" placeholder="ej. Nissan Versa 2021 blanco">
+    </div>
+    <div class="field">
+      <label for="nuevo-agencia">Agencia / negocio</label>
+      <select id="nuevo-agencia" class="select"></select>
     </div>
     <p id="nuevo-error" class="error hidden">Escribe el nombre del cliente.</p>
     <div class="modal-actions">
@@ -209,6 +221,8 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=6"></script>
+<script src="app.js?v=12"></script>
+<script src="contratos.js?v=3"></script>
+<script src="valuador.js?v=5"></script>
 </body>
 </html>
